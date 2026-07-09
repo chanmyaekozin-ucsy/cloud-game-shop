@@ -49,7 +49,7 @@ KBZ_MERCHANT_NAME = os.environ.get("KBZ_MERCHANT_NAME", "").strip()
 KBZ_MERCHANT_PHONE = os.environ.get("KBZ_MERCHANT_PHONE", "").strip()
 KBZ_PAY_DISPLAY_NAME = os.environ.get("KBZ_PAY_DISPLAY_NAME", KBZ_MERCHANT_NAME).strip()
 KBZ_PAY_PHONE = os.environ.get("KBZ_PAY_PHONE", KBZ_MERCHANT_PHONE).strip()
-KBZ_TX_EXAMPLE = os.environ.get("KBZ_TX_EXAMPLE", "71132").strip()
+KBZ_TX_EXAMPLE = os.environ.get("KBZ_TX_EXAMPLE", "82622").strip()
 KBZ_SAMPLE_TX_IMAGE = Path(
     os.environ.get(
         "KBZ_SAMPLE_TX_IMAGE",
