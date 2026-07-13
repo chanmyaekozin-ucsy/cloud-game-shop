@@ -47,6 +47,13 @@ _kbz_cache: BalanceSnapshot | None = None
 _kbz_cache_at: float | None = None
 
 
+def clear_kbz_balance_cache() -> None:
+    """Drop cached KBZ balance (e.g. after admin session upload)."""
+    global _kbz_cache, _kbz_cache_at
+    _kbz_cache = None
+    _kbz_cache_at = None
+
+
 def _parse_kbz_balance(data: dict[str, Any]) -> tuple[str | None, str | None, str]:
     bal = data.get("queryAccountBalanceResponse") or {}
     if not isinstance(bal, dict):

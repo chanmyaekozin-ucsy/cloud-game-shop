@@ -992,6 +992,24 @@ class KBZClient:
         data = self._post_command("NewTransRecordList", payload)
         return data
 
+    def history_pin_check(self, pin: str) -> dict[str, Any]:
+        """HistoryPinCheckIdentity — unlock transaction history after needVerifyPin."""
+        pin = re.sub(r"\D", "", pin)
+        if len(pin) != 6:
+            raise ValueError("PIN must be 6 digits")
+        payload = self._base_new_request("HistoryPinCheckIdentity")
+        payload["initiatorPin"] = encrypt_pin(
+            pin, payload["timestamp"], payload["originatorConversationID"]
+        )
+        payload["businessScenario"] = "history"
+        payload["useDynamicCaller"] = "true"
+        return self._post_command("HistoryPinCheckIdentity", payload)
+
+    def unlock_and_fetch_history(self, pin: str) -> dict[str, Any]:
+        """PIN unlock then re-fetch page 1 of NewTransRecordList."""
+        self.history_pin_check(pin)
+        return self.fetch_transaction_page(cursor=HistoryCursor())
+
     def _balance_payload(self) -> dict[str, Any]:
         """CustomerCombineQuery — Balance + ExchangeRate (home screen)."""
         return {

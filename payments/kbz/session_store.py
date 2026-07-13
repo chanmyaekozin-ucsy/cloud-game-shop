@@ -17,6 +17,10 @@ from payments.kbz.verify import _is_token_error
 
 logger = logging.getLogger(__name__)
 
+HISTORY_LOCKED_MSG = (
+    "HISTORY_LOCKED: Balance OK, but history needs PIN (needVerifyPin)."
+)
+
 
 def read_session_file(path: Path) -> dict | None:
     if not path.is_file():
@@ -103,16 +107,56 @@ def update_token_from_plaintext_capture(session_path: Path, text: str) -> tuple[
 
 
 def probe_session(session_path: Path) -> tuple[bool, str]:
-    """Return (ok, error_message)."""
+    """Return (ok, error_message).
+
+    ok=True means balance works. If history is risk-locked (needVerifyPin),
+    ok stays True and error_message starts with HISTORY_LOCKED.
+    """
     session = load_session(session_path)
     if not session:
         return False, "Session file missing or has no token"
     try:
-        KBZClient(session, timeout=20.0).fetch_balance()
-        return True, ""
+        client = KBZClient(session, timeout=20.0)
+        client.fetch_balance()
     except Exception as exc:
         msg = str(exc)
         if _is_token_error(msg):
             return False, msg
         logger.warning("KBZ session probe failed: %s", msg)
         return False, msg
+
+    try:
+        from payments.kbz.kbz_client import HistoryCursor
+
+        page = client.fetch_transaction_page(cursor=HistoryCursor())
+        if str(page.get("needVerifyPin") or "").lower() in ("true", "1", "yes"):
+            if not (page.get("transRecordList") or []):
+                return True, HISTORY_LOCKED_MSG
+    except Exception as exc:
+        msg = str(exc)
+        if _is_token_error(msg):
+            return False, msg
+        logger.warning("KBZ history probe failed: %s", msg)
+        return True, f"Balance OK, history probe failed: {msg}"
+
+    return True, ""
+
+
+def unlock_history_with_pin(session_path: Path, pin: str) -> tuple[bool, str, int]:
+    """Run HistoryPinCheckIdentity then history. Returns (ok, error, record_count)."""
+    session = load_session(session_path)
+    if not session:
+        return False, "Session file missing or has no token", 0
+    try:
+        page = KBZClient(session, timeout=25.0).unlock_and_fetch_history(pin)
+    except Exception as exc:
+        msg = str(exc)
+        logger.warning("KBZ history PIN unlock failed: %s", msg)
+        return False, msg, 0
+
+    if str(page.get("needVerifyPin") or "").lower() in ("true", "1", "yes"):
+        if not (page.get("transRecordList") or []):
+            return False, "PIN accepted but history still locked (needVerifyPin)", 0
+
+    records = page.get("transRecordList") or []
+    return True, "", len(records)

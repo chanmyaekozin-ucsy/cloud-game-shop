@@ -20,7 +20,11 @@ from bot.keyboards import (
     admin_packages_inline,
     main_menu_keyboard,
 )
-from payments.kbz.session_store import probe_session
+from payments.kbz.session_store import (
+    HISTORY_LOCKED_MSG,
+    probe_session,
+    unlock_history_with_pin,
+)
 from providers.smileone.auth import SmileAuthError
 from providers.smileone.client import SmileOneClient
 from providers.smileone.packages import load_package_lists, save_package_lists
@@ -258,8 +262,19 @@ async def _ask_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 async def _ask_kbz_session(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.message:
         return
-    _set_admin_state(context, "waiting_kbz_session")
     path = Path(config.KBZ_SESSION_PATH)
+    if path.is_file():
+        ok, probe_err = await asyncio.to_thread(probe_session, path)
+        if ok and probe_err.startswith("HISTORY_LOCKED"):
+            await update.message.reply_text(
+                "Current session balance is OK, but history is locked.\n"
+                "Enter PIN to unlock, or send a new kbz_session.json file.",
+                reply_markup=admin_menu_keyboard(),
+            )
+            await _ask_kbz_history_pin(update.effective_chat.id, context)
+            return
+
+    _set_admin_state(context, "waiting_kbz_session")
     await update.message.reply_text(
         "Send kbz_session.json as a document.\n\n"
         f"It will be saved to {path.name} and your upload message will be deleted.\n"
@@ -293,6 +308,66 @@ async def _delete_upload_message(update: Update) -> None:
         await update.message.delete()
     except Exception:
         logger.warning("Could not delete KBZ session upload message", exc_info=True)
+
+
+async def _refresh_proofs_monitor(bot) -> None:
+    """Force an immediate Smile + KBZ balance post to the proofs group."""
+    try:
+        from services.balance_monitor import clear_kbz_balance_cache, run_monitor_tick
+
+        clear_kbz_balance_cache()
+        await run_monitor_tick(bot)
+    except Exception:
+        logger.exception("Failed to refresh proofs-group balance monitor")
+
+
+async def _ask_kbz_history_pin(chat_id: int, context: ContextTypes.DEFAULT_TYPE) -> None:
+    _set_admin_state(context, "waiting_kbz_pin")
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=(
+            "🔐 KBZ history is locked (needVerifyPin).\n\n"
+            "Send your 6-digit KBZPay PIN.\n"
+            "If unlock works, your PIN message will be deleted."
+        ),
+        reply_markup=admin_menu_keyboard(),
+    )
+
+
+async def _handle_kbz_pin(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    text: str,
+) -> None:
+    if not update.message or not update.effective_chat:
+        return
+    pin = "".join(ch for ch in text if ch.isdigit())
+    if len(pin) != 6:
+        await update.message.reply_text("Send exactly 6 digits (KBZPay PIN).")
+        return
+
+    path = Path(config.KBZ_SESSION_PATH)
+    ok, err, count = await asyncio.to_thread(unlock_history_with_pin, path, pin)
+    if not ok:
+        await update.message.reply_text(
+            f"PIN unlock failed: {err}\n\nSend the 6-digit PIN again, or /admin to cancel.",
+            reply_markup=admin_menu_keyboard(),
+        )
+        return
+
+    await _delete_upload_message(update)
+    _set_admin_state(context, None)
+    await _refresh_proofs_monitor(update.get_bot())
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text=(
+            f"✅ KBZ history unlocked\n"
+            f"Recent records visible: {count}\n"
+            "PIN message deleted.\n"
+            "Payment group balance updated."
+        ),
+        reply_markup=admin_menu_keyboard(),
+    )
 
 
 async def _import_kbz_session_bytes(
@@ -333,43 +408,95 @@ async def _import_kbz_session_bytes(
     tmp.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     tmp.replace(path)
 
+    try:
+        from services.balance_monitor import clear_kbz_balance_cache
+
+        clear_kbz_balance_cache()
+    except Exception:
+        logger.debug("Could not clear KBZ monitor cache", exc_info=True)
+
     ok, probe_err = await asyncio.to_thread(probe_session, path)
-    _set_admin_state(context, None)
     await _delete_upload_message(update)
 
     msisdn = str(payload.get("initiatorMSISDN") or payload.get("msisdn") or "—")
     device_id = str(payload.get("deviceID") or payload.get("device_id") or "—")
     token = str(payload.get("token") or "")
     token_hint = f"{token[:8]}…{token[-8:]}" if len(token) > 20 else "…"
+    chat = update.effective_chat
+    if not chat:
+        return
 
-    if ok:
+    history_locked = ok and probe_err.startswith("HISTORY_LOCKED")
+
+    if ok and not probe_err:
+        _set_admin_state(context, None)
+        await _refresh_proofs_monitor(update.get_bot())
         text = (
             "✅ KBZ session updated\n"
             f"MSISDN: {msisdn}\n"
             f"deviceID: {device_id}\n"
             f"token: {token_hint}\n"
-            "Balance probe: OK\n"
-            "Upload message deleted."
+            "Balance + history probe: OK\n"
+            "Upload message deleted.\n"
+            "Payment group balance updated.\n\n"
+            "Keep KBZPay closed on the phone or this session will get AS403."
         )
+        await context.bot.send_message(
+            chat_id=chat.id,
+            text=text,
+            reply_markup=admin_menu_keyboard(),
+        )
+        return
+
+    if history_locked:
+        await context.bot.send_message(
+            chat_id=chat.id,
+            text=(
+                "⚠️ KBZ session saved (balance OK)\n"
+                f"MSISDN: {msisdn}\n"
+                f"deviceID: {device_id}\n"
+                f"token: {token_hint}\n"
+                "Upload message deleted.\n\n"
+                f"{HISTORY_LOCKED_MSG}"
+            ),
+            reply_markup=admin_menu_keyboard(),
+        )
+        await _ask_kbz_history_pin(chat.id, context)
+        return
+
+    if ok:
+        _set_admin_state(context, None)
+        await _refresh_proofs_monitor(update.get_bot())
+        text = (
+            "⚠️ KBZ session saved (balance OK)\n"
+            f"MSISDN: {msisdn}\n"
+            f"deviceID: {device_id}\n"
+            f"token: {token_hint}\n"
+            f"{probe_err}\n"
+            "Upload message deleted.\n"
+            "Payment group balance updated.\n\n"
+            "Keep KBZPay closed on the phone."
+        )
+        logger.warning("KBZ session saved with history warning: %s", probe_err)
     else:
+        _set_admin_state(context, None)
+        await _refresh_proofs_monitor(update.get_bot())
         text = (
             "⚠️ KBZ session saved, but probe failed\n"
             f"MSISDN: {msisdn}\n"
             f"deviceID: {device_id}\n"
             f"token: {token_hint}\n"
             f"Error: {probe_err}\n"
-            "Upload message deleted."
+            "Upload message deleted.\n"
+            "Payment group balance updated."
         )
         logger.warning("KBZ session saved but probe failed: %s", probe_err)
 
-    # Prefer reply in chat (upload message may already be gone).
-    chat = update.effective_chat
-    if chat:
-        await context.bot.send_message(
-            chat_id=chat.id,
-            text=text,
-            reply_markup=admin_menu_keyboard(),
-        )
+    await context.bot.send_message(
+        chat_id=chat.id,
+        text=text,
+        reply_markup=admin_menu_keyboard(),
+    )
 
 
 async def _preview_broadcast(
@@ -534,6 +661,9 @@ async def admin_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return True
 
     state = context.user_data.get(ADMIN_STATE_KEY)
+    if state == "waiting_kbz_pin":
+        await _handle_kbz_pin(update, context, text)
+        return True
     if state == "waiting_multiplier":
         await _handle_multiplier(update, context, text)
         return True
@@ -575,11 +705,16 @@ async def admin_document_message(update: Update, context: ContextTypes.DEFAULT_T
     doc = update.message.document
     name = (doc.file_name or "").lower()
 
-    if state == "waiting_kbz_session":
+    if state in ("waiting_kbz_session", "waiting_kbz_pin"):
         if not (name.endswith(".json") or "kbz" in name or name.endswith(".txt")):
-            await update.message.reply_text(
-                "Please send a .json session file (e.g. kbz_session.json)."
-            )
+            if state == "waiting_kbz_pin":
+                await update.message.reply_text(
+                    "Waiting for 6-digit PIN, or send a new .json session file."
+                )
+            else:
+                await update.message.reply_text(
+                    "Please send a .json session file (e.g. kbz_session.json)."
+                )
             return True
         tg_file = await doc.get_file()
         content = bytes(await tg_file.download_as_bytearray())
