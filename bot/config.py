@@ -66,6 +66,8 @@ MONITOR_ENABLED = os.environ.get("MONITOR_ENABLED", "true").strip().lower() in (
 )
 MONITOR_INTERVAL_MIN_SEC = int(os.environ.get("MONITOR_INTERVAL_MIN_SEC", "40"))
 MONITOR_INTERVAL_MAX_SEC = int(os.environ.get("MONITOR_INTERVAL_MAX_SEC", "120"))
+# KBZ balance API is polled less often than Smile.one (default: once per hour).
+MONITOR_KBZ_INTERVAL_SEC = int(os.environ.get("MONITOR_KBZ_INTERVAL_SEC", "3600"))
 
 SQLITE_PATH = os.environ.get(
     "SQLITE_PATH",

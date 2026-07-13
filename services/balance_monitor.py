@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import random
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -38,6 +39,12 @@ class BalanceSnapshot:
     kbz_currency: str = "MMK"
     kbz_error: str | None = None
     kbz_refreshed: bool = False
+    kbz_fetched: bool = False
+
+
+# Cached KBZ result so the monitor can refresh Smile.one often without hammering KBZ.
+_kbz_cache: BalanceSnapshot | None = None
+_kbz_cache_at: float | None = None
 
 
 def _parse_kbz_balance(data: dict[str, Any]) -> tuple[str | None, str | None, str]:
@@ -144,12 +151,27 @@ def _fetch_kbz_balance() -> tuple[str | None, str | None, str, str | None, bool]
     return bal, avail, currency, None, refreshed
 
 
-def fetch_balances_sync() -> BalanceSnapshot:
-    snap = BalanceSnapshot()
-    smile_bal, smile_err, smile_relogin = _fetch_smile_balance()
-    snap.smile_balance = smile_bal
-    snap.smile_error = smile_err
-    snap.smile_relogin = smile_relogin
+def _kbz_interval_sec() -> int:
+    return max(60, config.MONITOR_KBZ_INTERVAL_SEC)
+
+
+def _apply_kbz_cache(snap: BalanceSnapshot) -> None:
+    global _kbz_cache, _kbz_cache_at
+
+    now = time.monotonic()
+    interval = _kbz_interval_sec()
+    if (
+        _kbz_cache is not None
+        and _kbz_cache_at is not None
+        and (now - _kbz_cache_at) < interval
+    ):
+        snap.kbz_balance = _kbz_cache.kbz_balance
+        snap.kbz_available = _kbz_cache.kbz_available
+        snap.kbz_currency = _kbz_cache.kbz_currency
+        snap.kbz_error = _kbz_cache.kbz_error
+        snap.kbz_refreshed = False
+        snap.kbz_fetched = False
+        return
 
     kbz_bal, kbz_avail, kbz_cur, kbz_err, kbz_ref = _fetch_kbz_balance()
     snap.kbz_balance = kbz_bal
@@ -157,6 +179,24 @@ def fetch_balances_sync() -> BalanceSnapshot:
     snap.kbz_currency = kbz_cur
     snap.kbz_error = kbz_err
     snap.kbz_refreshed = kbz_ref
+    snap.kbz_fetched = True
+    _kbz_cache = BalanceSnapshot(
+        kbz_balance=kbz_bal,
+        kbz_available=kbz_avail,
+        kbz_currency=kbz_cur,
+        kbz_error=kbz_err,
+        kbz_fetched=True,
+    )
+    _kbz_cache_at = now
+
+
+def fetch_balances_sync() -> BalanceSnapshot:
+    snap = BalanceSnapshot()
+    smile_bal, smile_err, smile_relogin = _fetch_smile_balance()
+    snap.smile_balance = smile_bal
+    snap.smile_error = smile_err
+    snap.smile_relogin = smile_relogin
+    _apply_kbz_cache(snap)
     return snap
 
 
@@ -183,10 +223,18 @@ def _next_monitor_delay() -> int:
 def format_monitor_message(snap: BalanceSnapshot) -> str:
     now = datetime.now(MMT).strftime("%Y-%m-%d %H:%M:%S MMT")
     lo, hi = _monitor_interval_range()
-    every = f"{lo}–{hi}s" if lo != hi else f"{lo}s"
+    smile_every = f"{lo}–{hi}s" if lo != hi else f"{lo}s"
+    kbz_every_sec = _kbz_interval_sec()
+    if kbz_every_sec % 3600 == 0 and kbz_every_sec >= 3600:
+        kbz_every = f"{kbz_every_sec // 3600}h"
+    elif kbz_every_sec % 60 == 0:
+        kbz_every = f"{kbz_every_sec // 60}m"
+    else:
+        kbz_every = f"{kbz_every_sec}s"
     lines = [
         "📊 Cloud Game Shop — Balance Monitor",
-        f"Updated: {now} (refresh {every})",
+        f"Updated: {now}",
+        f"Smile refresh: {smile_every} · KBZ refresh: {kbz_every}",
         "",
     ]
 
@@ -288,19 +336,31 @@ async def run_monitor_tick(bot: Bot) -> None:
     snap = await asyncio.to_thread(fetch_balances_sync)
     text = format_monitor_message(snap)
     await update_pinned_status(bot, text)
+    kbz_note = "fetched" if snap.kbz_fetched else "cached"
     if snap.smile_error or snap.kbz_error:
         logger.warning(
-            "Monitor tick: smile=%s kbz=%s",
+            "Monitor tick: smile=%s kbz=%s (%s)",
             snap.smile_error or "ok",
             snap.kbz_error or "ok",
+            kbz_note,
         )
     else:
-        logger.info("Monitor tick OK — smile=%s kbz=%s", snap.smile_balance, snap.kbz_balance)
+        logger.info(
+            "Monitor tick OK — smile=%s kbz=%s (%s)",
+            snap.smile_balance,
+            snap.kbz_balance,
+            kbz_note,
+        )
 
 
 async def balance_monitor_loop(bot: Bot) -> None:
     lo, hi = _monitor_interval_range()
-    logger.info("Balance monitor started (%s–%ss random, proofs group pin)", lo, hi)
+    logger.info(
+        "Balance monitor started (Smile %s–%ss, KBZ every %ss, proofs group pin)",
+        lo,
+        hi,
+        _kbz_interval_sec(),
+    )
     await asyncio.sleep(5)
     while True:
         try:

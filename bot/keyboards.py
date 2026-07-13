@@ -100,7 +100,8 @@ def admin_menu_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         [
             [KeyboardButton("👤 Users"), KeyboardButton("📦 Packages")],
-            [KeyboardButton("📢 Notify"), KeyboardButton("🚪 Exit Admin")],
+            [KeyboardButton("🔑 KBZ Session"), KeyboardButton("📢 Notify")],
+            [KeyboardButton("🚪 Exit Admin")],
         ],
         resize_keyboard=True,
     )
