@@ -61,16 +61,25 @@ def confirm_keyboard(lang: str | None = None) -> InlineKeyboardMarkup:
 
 
 def kbz_copy_phone_keyboard(phone: str, lang: str | None = None) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        [
+    rows = []
+    if phone:
+        rows.append(
             [
                 InlineKeyboardButton(
                     i18n.t("copy_phone", lang),
                     copy_text=CopyTextButton(text=phone),
                 )
             ]
+        )
+    rows.append(
+        [
+            InlineKeyboardButton(
+                f"❌ {i18n.t('cancel', lang)}",
+                callback_data="order:cancel",
+            )
         ]
     )
+    return InlineKeyboardMarkup(rows)
 
 
 def admin_contact_keyboard(lang: str | None = None) -> InlineKeyboardMarkup | None:

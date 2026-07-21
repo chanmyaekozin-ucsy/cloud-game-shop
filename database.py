@@ -177,6 +177,29 @@ async def get_open_order_for_user(user_id: int) -> dict | None:
         return dict(row) if row else None
 
 
+async def cancel_awaiting_payment_order(user_id: int) -> dict | None:
+    """User-cancel the latest awaiting_payment order. Returns row or None."""
+    open_order = await get_open_order_for_user(user_id)
+    if not open_order or open_order["status"] != "awaiting_payment":
+        return None
+    async with aiosqlite.connect(config.SQLITE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            """
+            UPDATE orders
+            SET status = 'cancelled'
+            WHERE id = ? AND user_id = ? AND status = 'awaiting_payment'
+            """,
+            (open_order["id"], user_id),
+        )
+        await db.commit()
+        if cur.rowcount == 0:
+            return None
+        cur2 = await db.execute("SELECT * FROM orders WHERE id = ?", (open_order["id"],))
+        row = await cur2.fetchone()
+        return dict(row) if row else None
+
+
 async def get_order(order_id: int) -> dict | None:
     async with aiosqlite.connect(config.SQLITE_PATH) as db:
         db.row_factory = aiosqlite.Row

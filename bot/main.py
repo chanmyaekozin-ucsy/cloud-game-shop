@@ -23,7 +23,7 @@ from bot.handlers.admin import (
     route_text_message,
 )
 from bot.handlers.group_payment import build_group_payment_handlers
-from bot.handlers.shop import callback_query, cmd_start
+from bot.handlers.shop import callback_query, cmd_cancel, cmd_start
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -99,6 +99,7 @@ def main() -> None:
 
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("help", cmd_start))
+    app.add_handler(CommandHandler("cancel", cmd_cancel))
     app.add_handler(CommandHandler("admin", cmd_admin))
     app.add_handler(CallbackQueryHandler(admin_callback, pattern=r"^admin:"))
     # Group Accept/Decline before shop callbacks (same pattern as AirVPN).

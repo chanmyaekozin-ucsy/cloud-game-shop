@@ -146,11 +146,27 @@ _TEXTS: dict[str, dict[str, str]] = {
     "order_already_open": {
         LANG_EN: (
             "You already have an open order.\n"
-            "Please finish or wait for that payment first."
+            "Send the last 5 digits to finish payment,\n"
+            "or tap /cancel to start over."
         ),
         LANG_MY: (
             "သင့်မှာ လက်ရှိ မှာယူမှု တစ်ခု ရှိနေပါသေးတယ်။\n"
-            "အရင်အော်ဒါကို အပြီးသတ်ပါ (သို့မဟုတ်) စောင့်ဆိုင်းပါ။"
+            "ငွေပေးချေမှု နောက်ဆုံး ၅ လုံး ပို့ပေးပါ။\n"
+            "သို့မဟုတ် /cancel နှိပ်ပြီး ပြန်စပါ။"
+        ),
+    },
+    "nothing_to_cancel": {
+        LANG_EN: "No open order to cancel.",
+        LANG_MY: "ပယ်ဖျက်ရန် မှာယူမှု မရှိပါ။",
+    },
+    "cannot_cancel_review": {
+        LANG_EN: (
+            "Your payment is under review.\n"
+            "Please wait, or contact Admin."
+        ),
+        LANG_MY: (
+            "သင့်ငွေပေးချေမှုကို စစ်ဆေးနေပါသည်။\n"
+            "ခဏစောင့်ပါ (သို့မဟုတ်) Admin ကို ဆက်သွယ်ပါ။"
         ),
     },
     "tx_already_used": {

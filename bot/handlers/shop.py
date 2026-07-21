@@ -57,6 +57,27 @@ def _clear_flow(context: ContextTypes.DEFAULT_TYPE) -> None:
     context.user_data.pop(PLAN_KEY, None)
 
 
+async def _cancel_open_awaiting_order(
+    context: ContextTypes.DEFAULT_TYPE,
+    user_db_id: int,
+) -> str:
+    """Cancel awaiting_payment order if any. Returns i18n key for reply."""
+    open_order = await db.get_open_order_for_user(user_db_id)
+    _clear_flow(context)
+    if not open_order:
+        return "nothing_to_cancel"
+    if open_order["status"] == "manual_review":
+        # Keep lock — admin Accept/Decline owns this order.
+        context.user_data[ORDER_KEY] = open_order["id"]
+        return "cannot_cancel_review"
+    if open_order["status"] != "awaiting_payment":
+        return "nothing_to_cancel"
+    cancelled = await db.cancel_awaiting_payment_order(user_db_id)
+    if not cancelled:
+        return "nothing_to_cancel"
+    return "order_cancelled"
+
+
 async def _resolve_open_order(
     context: ContextTypes.DEFAULT_TYPE,
     user_db_id: int,
@@ -141,6 +162,25 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await _cmd_start_impl(update, context)
 
 
+async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message or not update.effective_user:
+        return
+    user = update.effective_user
+    row = await db.upsert_user(
+        user.id,
+        username=user.username,
+        first_name=user.first_name,
+    )
+    lang = _lang(context, row)
+    key = await _cancel_open_awaiting_order(context, row["id"])
+    markup = (
+        failure_contact_markup(lang)
+        if key == "cannot_cancel_review"
+        else main_menu_keyboard(lang)
+    )
+    await update.message.reply_text(i18n.t(key, lang), reply_markup=markup)
+
+
 async def menu_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.message or not update.effective_user:
         return
@@ -192,7 +232,13 @@ async def menu_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if state == "waiting_game_id":
         await _handle_game_id(update, context, lang)
         return
-    if state == "waiting_tx_digits":
+
+    digits = re.sub(r"\D", "", text)
+    if state == "waiting_tx_digits" or (
+        TX_SUFFIX_RE.match(digits)
+        and await _resolve_open_order(context, row["id"])
+    ):
+        context.user_data[STATE_KEY] = "waiting_tx_digits"
         await _handle_tx_digits(update, context, lang)
         return
 
@@ -259,11 +305,14 @@ async def callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         plan_id = int(data.split(":", 1)[1])
         open_order = await db.get_open_order_for_user(row["id"])
         if open_order:
-            key = (
-                "payment_under_review"
-                if open_order["status"] == "manual_review"
-                else "order_already_open"
-            )
+            if open_order["status"] == "awaiting_payment":
+                context.user_data[ORDER_KEY] = open_order["id"]
+                context.user_data[STATE_KEY] = "waiting_tx_digits"
+                key = "order_already_open"
+            elif open_order["status"] == "manual_review":
+                key = "payment_under_review"
+            else:
+                key = "order_already_open"
             await _safe_edit_message_text(query, i18n.t(key, lang))
             return
         plan = _plan_by_id(plan_id)
@@ -276,12 +325,14 @@ async def callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
 
     if data == "order:cancel":
-        _clear_flow(context)
+        key = await _cancel_open_awaiting_order(context, row["id"])
+        markup = (
+            failure_contact_markup(lang)
+            if key == "cannot_cancel_review"
+            else main_menu_keyboard(lang)
+        )
         if query.message:
-            await query.message.reply_text(
-                i18n.t("order_cancelled", lang),
-                reply_markup=main_menu_keyboard(lang),
-            )
+            await query.message.reply_text(i18n.t(key, lang), reply_markup=markup)
         return
 
     if data == "order:confirm":
@@ -388,7 +439,7 @@ async def _confirm_order(
     phone = config.KBZ_PAY_PHONE or ""
     await query.message.reply_text(
         _kbz_pay_instructions(order["amount_ks"], lang),
-        reply_markup=kbz_copy_phone_keyboard(phone, lang) if phone else None,
+        reply_markup=kbz_copy_phone_keyboard(phone, lang),
     )
 
     sample = config.KBZ_SAMPLE_TX_IMAGE
