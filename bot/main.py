@@ -22,6 +22,7 @@ from bot.handlers.admin import (
     route_document_message,
     route_text_message,
 )
+from bot.handlers.group_payment import build_group_payment_handlers
 from bot.handlers.shop import callback_query, cmd_start
 
 logging.basicConfig(
@@ -41,7 +42,7 @@ async def post_init(application: Application) -> None:
 
         asyncio.create_task(balance_monitor_loop(application.bot))
         logger.info(
-            "Balance monitor enabled (%s–%ss random → proofs group)",
+            "Smile.one balance monitor enabled (%s–%ss random → proofs group)",
             config.MONITOR_INTERVAL_MIN_SEC,
             config.MONITOR_INTERVAL_MAX_SEC,
         )
@@ -100,6 +101,9 @@ def main() -> None:
     app.add_handler(CommandHandler("help", cmd_start))
     app.add_handler(CommandHandler("admin", cmd_admin))
     app.add_handler(CallbackQueryHandler(admin_callback, pattern=r"^admin:"))
+    # Group Accept/Decline before shop callbacks (same pattern as AirVPN).
+    for handler in build_group_payment_handlers():
+        app.add_handler(handler, group=-1)
     app.add_handler(CallbackQueryHandler(callback_query))
     app.add_handler(
         MessageHandler(

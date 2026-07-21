@@ -37,17 +37,47 @@ Copy values from `.env.example` into Coolify **Environment Variables** for this 
 | `SMILE_BROWSER_CHANNEL` | **Leave empty** | Container uses bundled Chromium, not Chrome |
 | `SMILE_REFRESH_HEADLESS` | `true` | Recommended in Docker |
 | `SQLITE_PATH` | `.data/cloud_gameshop.sqlite3` | Default is fine |
-| `KBZ_SESSION_PATH` | `.data/kbz_session.json` | Default is fine |
+| `KBZ_SESSION_PATH` | `/data/kbz/kbz_session.json` | **Read-only** shared file written by Donimate Payment Manager |
+| `KBZ_CLAIMED_TX_PATH` | `/data/kbz/kbz_claimed_txs.sqlite3` | Shared used-tx ledger (blocks one KBZ transfer across AirVPN + Game Shop) |
 
 Coolify injects these at runtime; `.env` is not shipped in the image.
 
 ## 3. Persistent data (important)
 
-The compose file mounts a named volume `bot-data` at `/app/.data`. This stores:
+The compose file mounts:
 
-- SQLite database (`cloud_gameshop.sqlite3`)
-- Smile.one session + browser profile
-- KBZ session JSON
+| Mount | Purpose |
+|-------|---------|
+| `bot-data` → `/app/.data` | **Private** — SQLite, Smile.one session + browser profile |
+| host `/data/kbz` → `/data/kbz` | **Shared** merchant `kbz_session.json` + `kbz_claimed_txs.sqlite3` (KBZ status posts = Payment Manager only) |
+
+Set:
+
+```
+KBZ_SESSION_PATH=/data/kbz/kbz_session.json
+# Optional override (default: same folder as session)
+# KBZ_CLAIMED_TX_PATH=/data/kbz/kbz_claimed_txs.sqlite3
+```
+
+**Do not** put Smile browser profile or SQLite on the shared volume. Only the KBZ session file is shared.
+
+### Shared KBZ session (Payment Manager is the only writer)
+
+On the host once:
+
+```bash
+sudo mkdir -p /data/kbz
+sudo chmod 750 /data/kbz
+```
+
+| Role | App |
+|------|-----|
+| **Write** session (login, upload, logout, history PIN) | **Donimate Payment Manager only** |
+| **Read** session (payment verify, balance display) | Cloud Game Shop, AirVPN |
+
+Attach host `/data/kbz` to all three containers. Shop bots must **not** upload tokens, refresh from Frida logs, or run KBZ login.
+
+Seed / renew the session from Payment Manager (Session menu or Login).
 
 **On redeploy, keep volumes** when Coolify asks — otherwise orders and sessions are lost.
 
@@ -71,7 +101,7 @@ Minimum files to copy:
 - `.data/smileone_session.json`
 - `.data/browser_profile/` (entire directory)
 - `.data/browser_profile_ready` (flag file)
-- `.data/kbz_session.json` (if using KBZ auto-verify)
+- Prefer shared host file `/data/kbz/kbz_session.json` (written by Payment Manager)
 
 ### One-time Smile.one setup (if not seeded)
 

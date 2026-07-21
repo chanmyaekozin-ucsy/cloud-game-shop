@@ -96,11 +96,27 @@ def failure_contact_markup(lang: str | None = None):
     return admin_contact_keyboard(lang) or main_menu_keyboard(lang)
 
 
+def group_proof_actions(order_id: int) -> InlineKeyboardMarkup:
+    """Accept / Decline on proofs-group posts when KBZ auto-verify is unavailable."""
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    "Accept", callback_data=f"proof_ok_{order_id}"
+                ),
+                InlineKeyboardButton(
+                    "Decline", callback_data=f"proof_no_{order_id}"
+                ),
+            ],
+        ]
+    )
+
+
 def admin_menu_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         [
             [KeyboardButton("👤 Users"), KeyboardButton("📦 Packages")],
-            [KeyboardButton("🔑 KBZ Session"), KeyboardButton("📢 Notify")],
+            [KeyboardButton("📢 Notify")],
             [KeyboardButton("🚪 Exit Admin")],
         ],
         resize_keyboard=True,

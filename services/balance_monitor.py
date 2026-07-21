@@ -1,4 +1,4 @@
-"""Refresh Smile.one + KBZ balances and pin live status in the proofs group."""
+"""Pin Smile.one coin balance in the proofs group (KBZ monitoring is Payment Manager only)."""
 
 from __future__ import annotations
 
@@ -6,19 +6,13 @@ import asyncio
 import json
 import logging
 import random
-import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
-from typing import Any
 
 from telegram import Bot
 from telegram.error import BadRequest
 
 from bot import config
-from payments.kbz.kbz_client import KBZClient, load_session
-from payments.kbz.session_store import try_refresh_token_from_log
-from payments.kbz.verify import _is_token_error
 from providers.smileone.auth import SmileAuthError
 from providers.smileone.client import SmileOneClient
 from providers.smileone.config import PROJECT_ROOT
@@ -34,59 +28,6 @@ class BalanceSnapshot:
     smile_balance: str | None = None
     smile_error: str | None = None
     smile_relogin: bool = False
-    kbz_balance: str | None = None
-    kbz_available: str | None = None
-    kbz_currency: str = "MMK"
-    kbz_error: str | None = None
-    kbz_refreshed: bool = False
-    kbz_fetched: bool = False
-
-
-# Cached KBZ result so the monitor can refresh Smile.one often without hammering KBZ.
-_kbz_cache: BalanceSnapshot | None = None
-_kbz_cache_at: float | None = None
-
-
-def clear_kbz_balance_cache() -> None:
-    """Drop cached KBZ balance (e.g. after admin session upload)."""
-    global _kbz_cache, _kbz_cache_at
-    _kbz_cache = None
-    _kbz_cache_at = None
-
-
-def _parse_kbz_balance(data: dict[str, Any]) -> tuple[str | None, str | None, str]:
-    bal = data.get("queryAccountBalanceResponse") or {}
-    if not isinstance(bal, dict):
-        bal = data
-    currency = str(bal.get("currency") or "MMK")
-    balance = bal.get("balance")
-    available = bal.get("availableBalance") or balance
-    if balance is None and available is None:
-        for key in ("balance", "availableBalance", "totalBalance"):
-            if data.get(key) is not None:
-                balance = data.get(key)
-                available = data.get("availableBalance") or balance
-                break
-    return (
-        _format_amount(balance),
-        _format_amount(available),
-        currency,
-    )
-
-
-def _format_amount(value: Any) -> str | None:
-    if value is None:
-        return None
-    text = str(value).strip()
-    if not text:
-        return None
-    try:
-        num = float(text.replace(",", ""))
-        if num.is_integer():
-            return f"{int(num):,}"
-        return f"{num:,.2f}"
-    except ValueError:
-        return text
 
 
 def _fetch_smile_balance() -> tuple[str | None, str | None, bool]:
@@ -120,96 +61,13 @@ def _looks_like_auth_error(message: str) -> bool:
     )
 
 
-def _fetch_kbz_balance() -> tuple[str | None, str | None, str, str | None, bool]:
-    session_path = Path(config.KBZ_SESSION_PATH)
-    log_path = _kbz_log_path()
-    refreshed = False
-
-    if log_path:
-        changed, _ = try_refresh_token_from_log(session_path, log_path)
-        refreshed = refreshed or changed
-
-    session = load_session(session_path)
-    if not session:
-        return None, None, "MMK", "KBZ session file missing", refreshed
-
-    def _query() -> dict[str, Any]:
-        return KBZClient(session, timeout=20.0).fetch_balance()
-
-    try:
-        data = _query()
-    except Exception as exc:
-        msg = str(exc)
-        if _is_token_error(msg) and log_path:
-            changed, _ = try_refresh_token_from_log(session_path, log_path)
-            if changed:
-                refreshed = True
-                session = load_session(session_path)
-                if session:
-                    try:
-                        data = KBZClient(session, timeout=20.0).fetch_balance()
-                        bal, avail, currency = _parse_kbz_balance(data)
-                        return bal, avail, currency, None, refreshed
-                    except Exception as retry_exc:
-                        return None, None, "MMK", str(retry_exc), refreshed
-        return None, None, "MMK", msg, refreshed
-
-    bal, avail, currency = _parse_kbz_balance(data)
-    return bal, avail, currency, None, refreshed
-
-
-def _kbz_interval_sec() -> int:
-    return max(60, config.MONITOR_KBZ_INTERVAL_SEC)
-
-
-def _apply_kbz_cache(snap: BalanceSnapshot) -> None:
-    global _kbz_cache, _kbz_cache_at
-
-    now = time.monotonic()
-    interval = _kbz_interval_sec()
-    if (
-        _kbz_cache is not None
-        and _kbz_cache_at is not None
-        and (now - _kbz_cache_at) < interval
-    ):
-        snap.kbz_balance = _kbz_cache.kbz_balance
-        snap.kbz_available = _kbz_cache.kbz_available
-        snap.kbz_currency = _kbz_cache.kbz_currency
-        snap.kbz_error = _kbz_cache.kbz_error
-        snap.kbz_refreshed = False
-        snap.kbz_fetched = False
-        return
-
-    kbz_bal, kbz_avail, kbz_cur, kbz_err, kbz_ref = _fetch_kbz_balance()
-    snap.kbz_balance = kbz_bal
-    snap.kbz_available = kbz_avail
-    snap.kbz_currency = kbz_cur
-    snap.kbz_error = kbz_err
-    snap.kbz_refreshed = kbz_ref
-    snap.kbz_fetched = True
-    _kbz_cache = BalanceSnapshot(
-        kbz_balance=kbz_bal,
-        kbz_available=kbz_avail,
-        kbz_currency=kbz_cur,
-        kbz_error=kbz_err,
-        kbz_fetched=True,
-    )
-    _kbz_cache_at = now
-
-
 def fetch_balances_sync() -> BalanceSnapshot:
     snap = BalanceSnapshot()
     smile_bal, smile_err, smile_relogin = _fetch_smile_balance()
     snap.smile_balance = smile_bal
     snap.smile_error = smile_err
     snap.smile_relogin = smile_relogin
-    _apply_kbz_cache(snap)
     return snap
-
-
-def _kbz_log_path() -> Path | None:
-    raw = config.KBZ_FRIDA_LOG_PATH.strip()
-    return Path(raw) if raw else None
 
 
 def _status_line(ok: bool, detail: str) -> str:
@@ -231,17 +89,10 @@ def format_monitor_message(snap: BalanceSnapshot) -> str:
     now = datetime.now(MMT).strftime("%Y-%m-%d %H:%M:%S MMT")
     lo, hi = _monitor_interval_range()
     smile_every = f"{lo}–{hi}s" if lo != hi else f"{lo}s"
-    kbz_every_sec = _kbz_interval_sec()
-    if kbz_every_sec % 3600 == 0 and kbz_every_sec >= 3600:
-        kbz_every = f"{kbz_every_sec // 3600}h"
-    elif kbz_every_sec % 60 == 0:
-        kbz_every = f"{kbz_every_sec // 60}m"
-    else:
-        kbz_every = f"{kbz_every_sec}s"
     lines = [
-        "📊 Cloud Game Shop — Balance Monitor",
+        "📊 Cloud Game Shop — Smile.one Balance",
         f"Updated: {now}",
-        f"Smile refresh: {smile_every} · KBZ refresh: {kbz_every}",
+        f"Refresh: {smile_every}",
         "",
     ]
 
@@ -250,23 +101,8 @@ def format_monitor_message(snap: BalanceSnapshot) -> str:
     else:
         lines.append(_status_line(True, f"Smile.one: {snap.smile_balance or '—'}"))
 
-    if snap.kbz_error:
-        lines.append(_status_line(False, f"KBZ Pay: {snap.kbz_error}"))
-    elif snap.kbz_balance:
-        kbz_line = f"KBZ Pay: {snap.kbz_balance} {snap.kbz_currency}"
-        if snap.kbz_available and snap.kbz_available != snap.kbz_balance:
-            kbz_line += f" (available {snap.kbz_available})"
-        lines.append(_status_line(True, kbz_line))
-    else:
-        lines.append(_status_line(False, "KBZ Pay: balance unavailable"))
-
-    notes: list[str] = []
     if snap.smile_relogin:
-        notes.append("Smile session auto-refreshed")
-    if snap.kbz_refreshed:
-        notes.append("KBZ token refreshed from capture log")
-    if notes:
-        lines.extend(["", " · ".join(notes)])
+        lines.extend(["", "Smile session auto-refreshed"])
 
     return "\n".join(lines)
 
@@ -343,30 +179,18 @@ async def run_monitor_tick(bot: Bot) -> None:
     snap = await asyncio.to_thread(fetch_balances_sync)
     text = format_monitor_message(snap)
     await update_pinned_status(bot, text)
-    kbz_note = "fetched" if snap.kbz_fetched else "cached"
-    if snap.smile_error or snap.kbz_error:
-        logger.warning(
-            "Monitor tick: smile=%s kbz=%s (%s)",
-            snap.smile_error or "ok",
-            snap.kbz_error or "ok",
-            kbz_note,
-        )
+    if snap.smile_error:
+        logger.warning("Monitor tick: smile=%s", snap.smile_error)
     else:
-        logger.info(
-            "Monitor tick OK — smile=%s kbz=%s (%s)",
-            snap.smile_balance,
-            snap.kbz_balance,
-            kbz_note,
-        )
+        logger.info("Monitor tick OK — smile=%s", snap.smile_balance)
 
 
 async def balance_monitor_loop(bot: Bot) -> None:
     lo, hi = _monitor_interval_range()
     logger.info(
-        "Balance monitor started (Smile %s–%ss, KBZ every %ss, proofs group pin)",
+        "Smile.one balance monitor started (%s–%ss → proofs group pin)",
         lo,
         hi,
-        _kbz_interval_sec(),
     )
     await asyncio.sleep(5)
     while True:

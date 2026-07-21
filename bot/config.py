@@ -45,6 +45,12 @@ KBZ_SESSION_PATH = os.environ.get(
     "KBZ_SESSION_PATH",
     str(PROJECT_ROOT / ".data" / "kbz_session.json"),
 )
+# Shared cross-bot used-tx ledger (same volume as session for all shops)
+_env_claimed = os.environ.get("KBZ_CLAIMED_TX_PATH", "").strip()
+KBZ_CLAIMED_TX_PATH = _env_claimed or str(
+    Path(KBZ_SESSION_PATH).expanduser().resolve().parent / "kbz_claimed_txs.sqlite3"
+)
+KBZ_BOT_CLAIM_NAME = os.environ.get("KBZ_BOT_CLAIM_NAME", "cloud_gameshop").strip()
 KBZ_MERCHANT_NAME = os.environ.get("KBZ_MERCHANT_NAME", "").strip()
 KBZ_MERCHANT_PHONE = os.environ.get("KBZ_MERCHANT_PHONE", "").strip()
 KBZ_PAY_DISPLAY_NAME = os.environ.get("KBZ_PAY_DISPLAY_NAME", KBZ_MERCHANT_NAME).strip()
@@ -57,7 +63,8 @@ KBZ_SAMPLE_TX_IMAGE = Path(
     )
 )
 PAYMENT_TX_MAX_AGE_HOURS = int(os.environ.get("PAYMENT_TX_MAX_AGE_HOURS", "2"))
-KBZ_FRIDA_LOG_PATH = os.environ.get("KBZ_FRIDA_LOG_PATH", "").strip()
+# Shared session path (READ-ONLY for this shop bot — Payment Manager writes it)
+KBZ_FRIDA_LOG_PATH = os.environ.get("KBZ_FRIDA_LOG_PATH", "").strip()  # unused; do not enable
 
 MONITOR_ENABLED = os.environ.get("MONITOR_ENABLED", "true").strip().lower() in (
     "1",
@@ -66,8 +73,7 @@ MONITOR_ENABLED = os.environ.get("MONITOR_ENABLED", "true").strip().lower() in (
 )
 MONITOR_INTERVAL_MIN_SEC = int(os.environ.get("MONITOR_INTERVAL_MIN_SEC", "40"))
 MONITOR_INTERVAL_MAX_SEC = int(os.environ.get("MONITOR_INTERVAL_MAX_SEC", "120"))
-# KBZ balance API is polled less often than Smile.one (default: once per hour).
-MONITOR_KBZ_INTERVAL_SEC = int(os.environ.get("MONITOR_KBZ_INTERVAL_SEC", "3600"))
+# KBZ session/balance monitoring lives in Donimate Payment Manager only.
 
 SQLITE_PATH = os.environ.get(
     "SQLITE_PATH",

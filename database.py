@@ -32,7 +32,10 @@ CREATE TABLE IF NOT EXISTS orders (
     kbz_trans_id TEXT,
     verify_status TEXT,
     verify_message TEXT,
+    proof_chat_id INTEGER,
     proof_message_id INTEGER,
+    processed_by INTEGER,
+    reject_reason TEXT,
     created_at TEXT DEFAULT (datetime('now')),
     completed_at TEXT,
     FOREIGN KEY (user_id) REFERENCES users(id)
@@ -42,10 +45,21 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_kbz_trans
     ON orders(kbz_trans_id) WHERE kbz_trans_id IS NOT NULL;
 """
 
+_ORDER_EXTRA_COLS = (
+    ("proof_chat_id", "INTEGER"),
+    ("processed_by", "INTEGER"),
+    ("reject_reason", "TEXT"),
+)
+
 
 async def init_db() -> None:
     async with aiosqlite.connect(config.SQLITE_PATH) as db:
         await db.executescript(_SCHEMA)
+        cur = await db.execute("PRAGMA table_info(orders)")
+        existing = {row[1] for row in await cur.fetchall()}
+        for col, col_type in _ORDER_EXTRA_COLS:
+            if col not in existing:
+                await db.execute(f"ALTER TABLE orders ADD COLUMN {col} {col_type}")
         await db.commit()
 
 
@@ -146,14 +160,14 @@ async def create_order(
 
 
 async def get_open_order_for_user(user_id: int) -> dict | None:
-    """Latest order still waiting for payment or being processed."""
+    """Latest order still waiting for payment, review, or processing."""
     async with aiosqlite.connect(config.SQLITE_PATH) as db:
         db.row_factory = aiosqlite.Row
         cur = await db.execute(
             """
             SELECT * FROM orders
             WHERE user_id = ?
-              AND status IN ('awaiting_payment', 'processing')
+              AND status IN ('awaiting_payment', 'manual_review', 'processing')
             ORDER BY id DESC
             LIMIT 1
             """,
@@ -171,6 +185,28 @@ async def get_order(order_id: int) -> dict | None:
         return dict(row) if row else None
 
 
+async def get_order_with_user(order_id: int) -> dict | None:
+    """Order row joined with buyer telegram fields (for proofs captions)."""
+    async with aiosqlite.connect(config.SQLITE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            """
+            SELECT
+                o.*,
+                u.telegram_id AS telegram_id,
+                u.username AS username,
+                u.first_name AS first_name,
+                u.language AS user_language
+            FROM orders o
+            JOIN users u ON u.id = o.user_id
+            WHERE o.id = ?
+            """,
+            (order_id,),
+        )
+        row = await cur.fetchone()
+        return dict(row) if row else None
+
+
 async def update_order(order_id: int, **fields: object) -> None:
     if not fields:
         return
@@ -181,22 +217,93 @@ async def update_order(order_id: int, **fields: object) -> None:
         await db.commit()
 
 
+async def save_proof_message(order_id: int, chat_id: int, message_id: int) -> None:
+    await update_order(
+        order_id,
+        proof_chat_id=chat_id,
+        proof_message_id=message_id,
+    )
+
+
+async def reject_order(order_id: int, admin_id: int, reason: str) -> dict | None:
+    """Mark order rejected if still in manual_review. Returns updated row or None."""
+    async with aiosqlite.connect(config.SQLITE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            """
+            UPDATE orders
+            SET status = 'rejected',
+                processed_by = ?,
+                reject_reason = ?,
+                verify_message = COALESCE(?, verify_message)
+            WHERE id = ? AND status = 'manual_review'
+            """,
+            (admin_id, reason, reason, order_id),
+        )
+        await db.commit()
+        if cur.rowcount == 0:
+            return None
+    return await get_order_with_user(order_id)
+
+
+async def claim_manual_order_for_processing(
+    order_id: int, admin_id: int
+) -> dict | None:
+    """Move manual_review → processing. Returns order+user row or None if raced."""
+    async with aiosqlite.connect(config.SQLITE_PATH) as db:
+        cur = await db.execute(
+            """
+            UPDATE orders
+            SET status = 'processing', processed_by = ?
+            WHERE id = ? AND status = 'manual_review'
+            """,
+            (admin_id, order_id),
+        )
+        await db.commit()
+        if cur.rowcount == 0:
+            return None
+    return await get_order_with_user(order_id)
+
+
 async def claim_kbz_trans(trans_id: str, order_id: int) -> bool:
+    """Claim a full KBZ tx id locally and in the shared cross-bot ledger."""
+    import asyncio
+
+    from payments.kbz.tx_claims import release_tx, try_claim_tx
+
+    tid = (trans_id or "").strip()
+    if not tid:
+        return False
+    bot = config.KBZ_BOT_CLAIM_NAME
+    ref = str(order_id)
+    path = config.KBZ_CLAIMED_TX_PATH
+
+    global_ok = await asyncio.to_thread(
+        try_claim_tx, path, tid, bot=bot, ref_id=ref
+    )
+    if not global_ok:
+        return False
+
     async with aiosqlite.connect(config.SQLITE_PATH) as db:
         try:
             await db.execute(
                 "UPDATE orders SET kbz_trans_id = ? WHERE id = ? AND kbz_trans_id IS NULL",
-                (trans_id, order_id),
+                (tid, order_id),
             )
             await db.commit()
             cur = await db.execute(
                 "SELECT id FROM orders WHERE kbz_trans_id = ?",
-                (trans_id,),
+                (tid,),
             )
             row = await cur.fetchone()
-            return row is not None and int(row[0]) == order_id
+            local_ok = row is not None and int(row[0]) == order_id
         except aiosqlite.IntegrityError:
-            return False
+            local_ok = False
+
+    if not local_ok:
+        await asyncio.to_thread(release_tx, path, tid, bot=bot, ref_id=ref)
+        return False
+    return True
 
 
 async def list_user_orders(user_id: int, *, limit: int = 10) -> list[dict]:

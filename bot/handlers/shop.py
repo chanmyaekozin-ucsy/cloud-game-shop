@@ -65,7 +65,11 @@ async def _resolve_open_order(
     stored = context.user_data.get(ORDER_KEY)
     if stored:
         order = await db.get_order(int(stored))
-        if order and order["status"] in ("awaiting_payment", "processing"):
+        if order and order["status"] in (
+            "awaiting_payment",
+            "manual_review",
+            "processing",
+        ):
             return int(stored)
 
     order = await db.get_open_order_for_user(user_db_id)
@@ -253,6 +257,15 @@ async def callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     if data.startswith("plan:"):
         plan_id = int(data.split(":", 1)[1])
+        open_order = await db.get_open_order_for_user(row["id"])
+        if open_order:
+            key = (
+                "payment_under_review"
+                if open_order["status"] == "manual_review"
+                else "order_already_open"
+            )
+            await _safe_edit_message_text(query, i18n.t(key, lang))
+            return
         plan = _plan_by_id(plan_id)
         if not plan:
             await _safe_edit_message_text(query, i18n.t("plan_not_found", lang))
@@ -420,11 +433,48 @@ async def _handle_tx_digits(
         await update.message.reply_text(i18n.t("order_not_found", lang))
         return
 
+    if order["status"] == "manual_review":
+        await update.message.reply_text(
+            i18n.t("payment_under_review", lang),
+            reply_markup=main_menu_keyboard(lang),
+        )
+        _clear_flow(context)
+        return
+
+    if order["status"] != "awaiting_payment":
+        await update.message.reply_text(i18n.t("session_expired", lang))
+        _clear_flow(context)
+        return
+
     await update.message.reply_text(i18n.t("checking_tx", lang))
     result = await verify_last5_digits(digits, order["amount_ks"])
 
     lang = _lang(context, user_row)
     user_row["telegram_id"] = update.effective_user.id
+
+    # KBZ session down / API error → keep order open for Accept/Decline
+    if result.status in ("token_invalid", "error"):
+        note = f"Last5: {digits}. {result.message}"
+        await db.update_order(
+            order["id"],
+            verify_status=result.status,
+            verify_message=note,
+            status="manual_review",
+        )
+        order["status"] = "manual_review"
+        await post_order_proof(
+            update.get_bot(),
+            order=order,
+            user=user_row,
+            status="manual_review",
+            note=note,
+        )
+        await update.message.reply_text(
+            i18n.t("payment_under_review", lang),
+            reply_markup=main_menu_keyboard(lang),
+        )
+        _clear_flow(context)
+        return
 
     if result.status != "ok" or not result.trans_id:
         await db.update_order(
@@ -437,7 +487,7 @@ async def _handle_tx_digits(
             update.get_bot(),
             order=order,
             user=user_row,
-            status="Payment Failed",
+            status="payment_failed",
             note=result.message,
         )
         await update.message.reply_text(
@@ -469,7 +519,7 @@ async def _handle_tx_digits(
         update.get_bot(),
         order=order,
         user=user_row,
-        status="Payment Verified — Processing",
+        status="auto_approved",
     )
 
     await update.message.reply_text(i18n.t("payment_verified", lang))
@@ -488,7 +538,7 @@ async def _handle_tx_digits(
             update.get_bot(),
             order=order,
             user=user_row,
-            status="Completed",
+            status="completed",
             note=msg,
         )
         await update.message.reply_text(
@@ -502,7 +552,7 @@ async def _handle_tx_digits(
             update.get_bot(),
             order=order,
             user=user_row,
-            status="Top-up Failed",
+            status="topup_failed",
             note=str(e),
         )
         await update.message.reply_text(

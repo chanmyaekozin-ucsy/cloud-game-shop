@@ -121,6 +121,38 @@ _TEXTS: dict[str, dict[str, str]] = {
             "Admin ကို ဆက်သွယ်ပါ။"
         ),
     },
+    "payment_under_review": {
+        LANG_EN: (
+            "Your payment is under review.\n"
+            "We will notify you once Admin accepts or declines it."
+        ),
+        LANG_MY: (
+            "သင့်ငွေပေးချေမှုကို စိစစ်နေပါတယ်။\n"
+            "Admin လက်ခံ/ငြင်းပယ်ပြီးပါက အကြောင်းကြားပါမယ်။"
+        ),
+    },
+    "payment_rejected": {
+        LANG_EN: (
+            "Your payment was declined.\n"
+            "Reason: {reason}\n"
+            "Please contact Admin if you need help."
+        ),
+        LANG_MY: (
+            "သင့်ငွေပေးချေမှုကို ငြင်းပယ်လိုက်ပါပြီ။\n"
+            "အကြောင်းပြချက်: {reason}\n"
+            "အကူအညီလိုပါက Admin ကို ဆက်သွယ်ပါ။"
+        ),
+    },
+    "order_already_open": {
+        LANG_EN: (
+            "You already have an open order.\n"
+            "Please finish or wait for that payment first."
+        ),
+        LANG_MY: (
+            "သင့်မှာ လက်ရှိ မှာယူမှု တစ်ခု ရှိနေပါသေးတယ်။\n"
+            "အရင်အော်ဒါကို အပြီးသတ်ပါ (သို့မဟုတ်) စောင့်ဆိုင်းပါ။"
+        ),
+    },
     "tx_already_used": {
         LANG_EN: (
             "Payment was not successful.\n"

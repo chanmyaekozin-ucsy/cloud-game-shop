@@ -7,6 +7,10 @@ services:
         required: false
     volumes:
       - bot-data:/app/.data
+      # Shared merchant KBZ session (READ-ONLY here).
+      # Writer: Donimate Payment Manager only.
+      # Set KBZ_SESSION_PATH=/data/kbz/kbz_session.json in env.
+      - /data/kbz:/data/kbz
     shm_size: "1gb"
     healthcheck:
       test: ["CMD-SHELL", "pgrep -f 'python bot/main.py' >/dev/null || exit 1"]

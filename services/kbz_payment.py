@@ -75,8 +75,7 @@ async def verify_last5_digits(suffix: str, expected_ks: int) -> VerifyResult:
             if _is_token_error(msg):
                 return VerifyResult(
                     "token_invalid",
-                    "KBZ session expired (logged in on another device). "
-                    "Pull a fresh session and upload again — keep KBZPay closed on the phone.",
+                    "KBZ session expired. Renew login in Donimate Payment Manager.",
                 )
             return VerifyResult("error", f"KBZ history error: {msg}")
 
@@ -84,7 +83,7 @@ async def verify_last5_digits(suffix: str, expected_ks: int) -> VerifyResult:
             return VerifyResult(
                 "error",
                 "KBZ history locked (needVerifyPin). "
-                "Admin: upload session → enter PIN when prompted.",
+                "Unlock history in Donimate Payment Manager.",
             )
         return VerifyResult(
             "failed",
