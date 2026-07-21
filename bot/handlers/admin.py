@@ -13,6 +13,7 @@ from telegram import InputFile, Update
 from telegram.ext import ContextTypes
 
 import database as db
+from bot import config
 from bot import i18n
 from bot.keyboards import (
     admin_broadcast_confirm_inline,
