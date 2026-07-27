@@ -118,13 +118,49 @@ async def _show_users(update: Update) -> None:
     await update.message.reply_text("\n".join(lines), reply_markup=admin_menu_keyboard())
 
 
-async def _show_revenue(update: Update) -> None:
+async def _ask_coin_rate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.message:
         return
-    from services.revenue import compute_revenue, format_revenue_report
+    from services.revenue import last_coin_rate
 
+    hint = last_coin_rate()
+    _set_admin_state(context, "waiting_coin_rate")
+    await update.message.reply_text(
+        "1 Smile Coin = ? Ks\n\n"
+        f"Send a number (e.g. {hint:g}).\n"
+        "အရင်း = smile_coin × this rate.",
+        reply_markup=admin_menu_keyboard(),
+    )
+
+
+async def _handle_coin_rate(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    text: str,
+) -> None:
+    if not update.message:
+        return
+    from services.revenue import (
+        compute_revenue,
+        format_revenue_report,
+        save_coin_rate,
+    )
+
+    raw = text.replace(",", "").strip()
+    try:
+        rate = float(raw)
+    except ValueError:
+        await update.message.reply_text("Invalid number. Send e.g. 84.6")
+        return
+    if rate <= 0:
+        await update.message.reply_text("Rate must be positive.")
+        return
+
+    save_coin_rate(rate)
+    _set_admin_state(context, None)
+    await update.message.reply_text("Calculating…")
     orders = await db.list_completed_orders()
-    stats = compute_revenue(orders)
+    stats = compute_revenue(orders, rate=rate)
     await update.message.reply_text(
         format_revenue_report(stats),
         reply_markup=admin_menu_keyboard(),
@@ -422,8 +458,7 @@ async def admin_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return True
     if text == BTN_REVENUE:
         context.user_data[ADMIN_MODE_KEY] = True
-        _set_admin_state(context, None)
-        await _show_revenue(update)
+        await _ask_coin_rate(update, context)
         return True
     if text == BTN_NOTIFY:
         context.user_data[ADMIN_MODE_KEY] = True
@@ -438,6 +473,9 @@ async def admin_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return True
 
     state = context.user_data.get(ADMIN_STATE_KEY)
+    if state == "waiting_coin_rate":
+        await _handle_coin_rate(update, context, text)
+        return True
     if state == "waiting_multiplier":
         await _handle_multiplier(update, context, text)
         return True

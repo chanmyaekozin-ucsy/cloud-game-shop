@@ -11,6 +11,33 @@ from providers.smileone.packages import load_package_lists
 MMT = timezone(timedelta(hours=6, minutes=30))
 
 
+def _rate_store_path():
+    from pathlib import Path
+
+    return Path(config.SQLITE_PATH).expanduser().resolve().parent / "smile_coin_ks_rate.txt"
+
+
+def last_coin_rate() -> float:
+    path = _rate_store_path()
+    if path.is_file():
+        try:
+            value = float(path.read_text(encoding="utf-8").strip())
+            if value > 0:
+                return value
+        except (OSError, ValueError):
+            pass
+    return float(config.SMILE_COIN_KS_RATE)
+
+
+def save_coin_rate(rate: float) -> None:
+    path = _rate_store_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"{rate:g}\n", encoding="utf-8")
+    except OSError:
+        pass
+
+
 def parse_smile_coin(raw: Any) -> float:
     text = str(raw or "").replace(",", "").strip()
     if not text:
@@ -86,8 +113,9 @@ def _empty_bucket() -> dict[str, Any]:
     }
 
 
-def _add_order(bucket: dict[str, Any], *, amount_ks: float, coin: float) -> None:
-    rate = float(config.SMILE_COIN_KS_RATE)
+def _add_order(
+    bucket: dict[str, Any], *, amount_ks: float, coin: float, rate: float
+) -> None:
     cost = coin * rate
     bucket["orders"] += 1
     bucket["revenue_ks"] += amount_ks
@@ -97,8 +125,14 @@ def _add_order(bucket: dict[str, Any], *, amount_ks: float, coin: float) -> None
         bucket["missing_coin"] += 1
 
 
-def compute_revenue(orders: list[dict[str, Any]]) -> dict[str, Any]:
+def compute_revenue(
+    orders: list[dict[str, Any]], *, rate: float | None = None
+) -> dict[str, Any]:
     """Split completed orders into today / week / month / all-time (MMT)."""
+    coin_rate = float(rate if rate is not None else config.SMILE_COIN_KS_RATE)
+    if coin_rate <= 0:
+        raise ValueError("rate must be positive")
+
     now = datetime.now(MMT)
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     week_start = today_start - timedelta(days=today_start.weekday())  # Monday
@@ -117,20 +151,20 @@ def compute_revenue(orders: list[dict[str, Any]]) -> dict[str, Any]:
         coin = resolve_order_smile_coin(
             order, by_goods=by_goods, by_package_id=by_package_id
         )
-        _add_order(buckets["all"], amount_ks=amount, coin=coin)
+        _add_order(buckets["all"], amount_ks=amount, coin=coin, rate=coin_rate)
 
         when = _parse_order_time_mmt(order.get("created_at"))
         if when is None:
             continue
         if when >= today_start:
-            _add_order(buckets["today"], amount_ks=amount, coin=coin)
+            _add_order(buckets["today"], amount_ks=amount, coin=coin, rate=coin_rate)
         if when >= week_start:
-            _add_order(buckets["week"], amount_ks=amount, coin=coin)
+            _add_order(buckets["week"], amount_ks=amount, coin=coin, rate=coin_rate)
         if when >= month_start:
-            _add_order(buckets["month"], amount_ks=amount, coin=coin)
+            _add_order(buckets["month"], amount_ks=amount, coin=coin, rate=coin_rate)
 
     return {
-        "rate": float(config.SMILE_COIN_KS_RATE),
+        "rate": coin_rate,
         "as_of": now,
         "week_start": week_start,
         "month_start": month_start,
