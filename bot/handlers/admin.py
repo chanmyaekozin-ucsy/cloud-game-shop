@@ -6,6 +6,7 @@ This bot only reads the shared session for payment verify / balance monitor.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from io import BytesIO
 
