@@ -19,6 +19,7 @@ from bot.keyboards import (
     failure_contact_markup,
     kbz_copy_phone_keyboard,
     main_menu_keyboard,
+    payment_method_keyboard,
     plans_inline,
 )
 from providers.smileone.client import SmileOneClient
@@ -27,6 +28,7 @@ from providers.smileone.packages import load_package_lists
 from services.kbz_payment import verify_last5_digits
 from services.payment_proofs import post_order_proof
 from services.topup import place_mlbb_order
+from services.wave_payment import verify_last5_digits as verify_wave_last5_digits
 
 logger = logging.getLogger("cloud_gameshop.shop")
 
@@ -37,6 +39,7 @@ STATE_KEY = "shop_state"
 ORDER_KEY = "pending_order_id"
 PLAN_KEY = "pending_plan"
 LANG_KEY = "language"
+PAY_METHOD_KEY = "pay_method"
 
 
 def _input_text(update: Update) -> str:
@@ -55,6 +58,7 @@ def _clear_flow(context: ContextTypes.DEFAULT_TYPE) -> None:
     context.user_data.pop(STATE_KEY, None)
     context.user_data.pop(ORDER_KEY, None)
     context.user_data.pop(PLAN_KEY, None)
+    context.user_data.pop(PAY_METHOD_KEY, None)
 
 
 async def _cancel_open_awaiting_order(
@@ -136,6 +140,48 @@ def _kbz_pay_instructions(amount_ks: int, lang: str) -> str:
         name=name,
         phone=phone,
     )
+
+
+def _wave_pay_instructions(amount_ks: int, lang: str) -> str:
+    name = config.WAVE_PAY_DISPLAY_NAME or config.WAVE_MERCHANT_NAME or "Cloud Game Shop"
+    phone = config.WAVE_PAY_PHONE or config.WAVE_MERCHANT_PHONE or "—"
+    return i18n.t(
+        "wave_pay",
+        lang,
+        amount=i18n.format_amount(amount_ks, lang),
+        name=name,
+        phone=phone,
+    )
+
+
+async def _send_pay_instructions(
+    message,
+    order: dict,
+    lang: str,
+    *,
+    method: str,
+) -> None:
+    if method == "WavePay":
+        text = _wave_pay_instructions(order["amount_ks"], lang)
+        phone = config.WAVE_PAY_PHONE or config.WAVE_MERCHANT_PHONE or ""
+        sample = config.WAVE_SAMPLE_TX_IMAGE
+        example = config.WAVE_TX_EXAMPLE
+    else:
+        text = _kbz_pay_instructions(order["amount_ks"], lang)
+        phone = config.KBZ_PAY_PHONE or ""
+        sample = config.KBZ_SAMPLE_TX_IMAGE
+        example = config.KBZ_TX_EXAMPLE
+
+    await message.reply_text(
+        text,
+        reply_markup=kbz_copy_phone_keyboard(phone, lang),
+    )
+    caption = i18n.t("tx_example_caption", lang, example=example)
+    if sample.is_file():
+        await message.reply_photo(photo=str(sample), caption=caption)
+    else:
+        await message.reply_text(caption)
+    await message.reply_text(i18n.t("tx_digits_prompt", lang))
 
 
 async def _cmd_start_impl(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -235,9 +281,17 @@ async def menu_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     digits = re.sub(r"\D", "", text)
     if state == "waiting_tx_digits" or (
-        TX_SUFFIX_RE.match(digits)
+        state not in ("waiting_pay_method", "waiting_game_id", "waiting_confirm")
+        and TX_SUFFIX_RE.match(digits)
         and await _resolve_open_order(context, row["id"])
     ):
+        if not context.user_data.get(PAY_METHOD_KEY):
+            context.user_data[STATE_KEY] = "waiting_pay_method"
+            await update.message.reply_text(
+                i18n.t("choose_pay_method", lang),
+                reply_markup=payment_method_keyboard(lang),
+            )
+            return
         context.user_data[STATE_KEY] = "waiting_tx_digits"
         await _handle_tx_digits(update, context, lang)
         return
@@ -307,8 +361,16 @@ async def callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if open_order:
             if open_order["status"] == "awaiting_payment":
                 context.user_data[ORDER_KEY] = open_order["id"]
-                context.user_data[STATE_KEY] = "waiting_tx_digits"
-                key = "order_already_open"
+                context.user_data[STATE_KEY] = "waiting_pay_method"
+                await _safe_edit_message_text(
+                    query,
+                    i18n.t("order_already_open", lang),
+                )
+                await query.message.reply_text(
+                    i18n.t("choose_pay_method", lang),
+                    reply_markup=payment_method_keyboard(lang),
+                )
+                return
             elif open_order["status"] == "manual_review":
                 key = "payment_under_review"
             else:
@@ -337,6 +399,10 @@ async def callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     if data == "order:confirm":
         await _confirm_order(update, context, lang)
+        return
+
+    if data in ("pay:kbz", "pay:wave"):
+        await _choose_pay_method(update, context, lang, data)
         return
 
 
@@ -433,26 +499,49 @@ async def _confirm_order(
         await query.message.reply_text(i18n.t("order_not_found", lang))
         return
 
-    context.user_data[STATE_KEY] = "waiting_tx_digits"
+    context.user_data[STATE_KEY] = "waiting_pay_method"
     await query.edit_message_reply_markup(reply_markup=None)
-
-    phone = config.KBZ_PAY_PHONE or ""
     await query.message.reply_text(
-        _kbz_pay_instructions(order["amount_ks"], lang),
-        reply_markup=kbz_copy_phone_keyboard(phone, lang),
+        i18n.t("choose_pay_method", lang),
+        reply_markup=payment_method_keyboard(lang),
     )
 
-    sample = config.KBZ_SAMPLE_TX_IMAGE
-    caption = i18n.t("tx_example_caption", lang, example=config.KBZ_TX_EXAMPLE)
-    if sample.is_file():
-        await query.message.reply_photo(
-            photo=str(sample),
-            caption=caption,
-        )
-    else:
-        await query.message.reply_text(caption)
 
-    await query.message.reply_text(i18n.t("tx_digits_prompt", lang))
+async def _choose_pay_method(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    lang: str,
+    data: str,
+) -> None:
+    query = update.callback_query
+    if not query or not query.message or not query.from_user:
+        return
+
+    user_row = await db.upsert_user(
+        query.from_user.id,
+        username=query.from_user.username,
+        first_name=query.from_user.first_name,
+    )
+    order_id = await _resolve_open_order(context, user_row["id"])
+    if not order_id:
+        _clear_flow(context)
+        await query.message.reply_text(i18n.t("session_expired", lang))
+        return
+
+    order = await db.get_order(order_id)
+    if not order or order["status"] != "awaiting_payment":
+        _clear_flow(context)
+        await query.message.reply_text(i18n.t("order_not_found", lang))
+        return
+
+    method = "WavePay" if data == "pay:wave" else "KBZPay"
+    context.user_data[PAY_METHOD_KEY] = method
+    context.user_data[STATE_KEY] = "waiting_tx_digits"
+    try:
+        await query.edit_message_reply_markup(reply_markup=None)
+    except BadRequest:
+        pass
+    await _send_pay_instructions(query.message, order, lang, method=method)
 
 
 async def _handle_tx_digits(
@@ -498,7 +587,11 @@ async def _handle_tx_digits(
         return
 
     await update.message.reply_text(i18n.t("checking_tx", lang))
-    result = await verify_last5_digits(digits, order["amount_ks"])
+    method = context.user_data.get(PAY_METHOD_KEY) or "KBZPay"
+    if method == "WavePay":
+        result = await verify_wave_last5_digits(digits, order["amount_ks"])
+    else:
+        result = await verify_last5_digits(digits, order["amount_ks"])
 
     lang = _lang(context, user_row)
     user_row["telegram_id"] = update.effective_user.id

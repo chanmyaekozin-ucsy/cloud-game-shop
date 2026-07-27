@@ -82,6 +82,23 @@ def kbz_copy_phone_keyboard(phone: str, lang: str | None = None) -> InlineKeyboa
     return InlineKeyboardMarkup(rows)
 
 
+def payment_method_keyboard(lang: str | None = None) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("KBZPay", callback_data="pay:kbz"),
+                InlineKeyboardButton("WavePay", callback_data="pay:wave"),
+            ],
+            [
+                InlineKeyboardButton(
+                    f"❌ {i18n.t('cancel', lang)}",
+                    callback_data="order:cancel",
+                )
+            ],
+        ]
+    )
+
+
 def admin_contact_keyboard(lang: str | None = None) -> InlineKeyboardMarkup | None:
     from bot import config
 

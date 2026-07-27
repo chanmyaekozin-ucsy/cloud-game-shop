@@ -39,6 +39,8 @@ Copy values from `.env.example` into Coolify **Environment Variables** for this 
 | `SQLITE_PATH` | `.data/cloud_gameshop.sqlite3` | Default is fine |
 | `KBZ_SESSION_PATH` | `/data/kbz/kbz_session.json` | **Read-only** shared file written by Donimate Payment Manager |
 | `KBZ_CLAIMED_TX_PATH` | `/data/kbz/kbz_claimed_txs.sqlite3` | Shared used-tx ledger (blocks one KBZ transfer across AirVPN + Game Shop) |
+| `WAVE_SESSION_PATH` | `/data/wave/wave_session.json` | **Read-only** Wave session from Payment Manager |
+| `WAVE_MERCHANT_NAME` / `WAVE_PAY_PHONE` | Yes for Wave | Shown on Wave payment screen |
 
 Coolify injects these at runtime; `.env` is not shipped in the image.
 
@@ -49,12 +51,14 @@ The compose file mounts:
 | Mount | Purpose |
 |-------|---------|
 | `bot-data` → `/app/.data` | **Private** — SQLite, Smile.one session + browser profile |
-| host `/data/kbz` → `/data/kbz` | **Shared** merchant `kbz_session.json` + `kbz_claimed_txs.sqlite3` (KBZ status posts = Payment Manager only) |
+| host `/data/kbz` → `/data/kbz` | **Shared** merchant `kbz_session.json` + claimed txs |
+| host `/data/wave` → `/data/wave` | **Shared** merchant `wave_session.json` |
 
 Set:
 
 ```
 KBZ_SESSION_PATH=/data/kbz/kbz_session.json
+WAVE_SESSION_PATH=/data/wave/wave_session.json
 # Optional override (default: same folder as session)
 # KBZ_CLAIMED_TX_PATH=/data/kbz/kbz_claimed_txs.sqlite3
 ```

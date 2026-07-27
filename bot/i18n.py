@@ -74,6 +74,10 @@ _TEXTS: dict[str, dict[str, str]] = {
         LANG_EN: "Confirm this account?",
         LANG_MY: "ဤအကောင့်ကို အတည်ပြုမလား?",
     },
+    "choose_pay_method": {
+        LANG_EN: "Choose a payment method.",
+        LANG_MY: "ငွေပေးချေမည့်နည်းလမ်းရွေးချယ်ပါ။",
+    },
     "kbz_pay": {
         LANG_EN: (
             "Please pay with KBZPay.\n\n"
@@ -86,6 +90,25 @@ _TEXTS: dict[str, dict[str, str]] = {
         ),
         LANG_MY: (
             "KBZPay ဖြင့် ငွေပေးချေပါ။\n\n"
+            "ပေးချရမည့် အမောင့် - {amount}\n\n"
+            "ငွေလက်ခံသူအမည် - {name}\n"
+            "လွှဲရမည့်နံပါတ် - {phone}\n\n"
+            "လွှဲပြီးပါက လုပ်ငန်းစဥ်နံပါတ်ရဲ့ နောက်ဆုံး ဂဏန်း ၅ လုံးကိုပို့ပေးပါ။\n"
+            "နမူနာ ကို ပုံတွင်ကြည့်ပါ။"
+        ),
+    },
+    "wave_pay": {
+        LANG_EN: (
+            "Please pay with WavePay.\n\n"
+            "Payment Amount: {amount}\n\n"
+            "Receiver Name: {name}\n"
+            "Transfer Number: {phone}\n\n"
+            "After transferring the money, please send the last 5 digits "
+            "of the transaction ID.\n\n"
+            "See the image for an example."
+        ),
+        LANG_MY: (
+            "WavePay ဖြင့် ငွေပေးချေပါ။\n\n"
             "ပေးချရမည့် အမောင့် - {amount}\n\n"
             "ငွေလက်ခံသူအမည် - {name}\n"
             "လွှဲရမည့်နံပါတ် - {phone}\n\n"

@@ -66,6 +66,33 @@ PAYMENT_TX_MAX_AGE_HOURS = int(os.environ.get("PAYMENT_TX_MAX_AGE_HOURS", "2"))
 # Shared session path (READ-ONLY for this shop bot — Payment Manager writes it)
 KBZ_FRIDA_LOG_PATH = os.environ.get("KBZ_FRIDA_LOG_PATH", "").strip()  # unused; do not enable
 
+# WavePay — READ-ONLY shared session (Payment Manager writes)
+WAVE_AUTO_VERIFY = os.environ.get("WAVE_AUTO_VERIFY", "true").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
+WAVE_SESSION_PATH = os.environ.get(
+    "WAVE_SESSION_PATH",
+    str(PROJECT_ROOT / ".data" / "wave_session.json"),
+)
+WAVE_MERCHANT_NAME = os.environ.get("WAVE_MERCHANT_NAME", "").strip()
+WAVE_MERCHANT_PHONE = os.environ.get("WAVE_MERCHANT_PHONE", "").strip()
+WAVE_PAY_DISPLAY_NAME = os.environ.get(
+    "WAVE_PAY_DISPLAY_NAME", WAVE_MERCHANT_NAME
+).strip()
+WAVE_PAY_PHONE = os.environ.get("WAVE_PAY_PHONE", WAVE_MERCHANT_PHONE).strip()
+WAVE_TX_EXAMPLE = os.environ.get("WAVE_TX_EXAMPLE", KBZ_TX_EXAMPLE).strip()
+WAVE_SAMPLE_TX_IMAGE = Path(
+    os.environ.get("WAVE_SAMPLE_TX_IMAGE", str(KBZ_SAMPLE_TX_IMAGE))
+)
+WAVE_HTTP_PROXY = os.environ.get("WAVE_HTTP_PROXY", "").strip() or None
+WAVE_VERIFY_SSL = os.environ.get("WAVE_VERIFY_SSL", "true").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
+
 MONITOR_ENABLED = os.environ.get("MONITOR_ENABLED", "true").strip().lower() in (
     "1",
     "true",
