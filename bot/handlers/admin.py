@@ -34,6 +34,7 @@ BROADCAST_TEXT_KEY = "admin_broadcast_text"
 
 BTN_USERS = "👤 Users"
 BTN_PACKAGES = "📦 Packages"
+BTN_REVENUE = "💰 Revenue"
 BTN_NOTIFY = "📢 Notify"
 BTN_EXIT = "🚪 Exit Admin"
 
@@ -73,6 +74,7 @@ async def cmd_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "🔧 Admin mode\n\n"
         "• Users — list bot users\n"
         "• Packages — auto CSV / import / view\n"
+        "• Revenue — sales / အရင်း / အမြတ်\n"
         "• Notify — broadcast message to all users\n\n"
         "KBZ session / payment accounts → Donimate Payment Manager only.",
         reply_markup=admin_menu_keyboard(),
@@ -113,6 +115,19 @@ async def _show_users(update: Update) -> None:
                 f"{u.get('order_count', 0)} orders"
             )
     await update.message.reply_text("\n".join(lines), reply_markup=admin_menu_keyboard())
+
+
+async def _show_revenue(update: Update) -> None:
+    if not update.message:
+        return
+    from services.revenue import compute_revenue, format_revenue_report
+
+    orders = await db.list_completed_orders()
+    stats = compute_revenue(orders)
+    await update.message.reply_text(
+        format_revenue_report(stats),
+        reply_markup=admin_menu_keyboard(),
+    )
 
 
 async def _show_packages_menu(update: Update) -> None:
@@ -403,6 +418,11 @@ async def admin_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE)
         context.user_data[ADMIN_MODE_KEY] = True
         _set_admin_state(context, None)
         await _show_packages_menu(update)
+        return True
+    if text == BTN_REVENUE:
+        context.user_data[ADMIN_MODE_KEY] = True
+        _set_admin_state(context, None)
+        await _show_revenue(update)
         return True
     if text == BTN_NOTIFY:
         context.user_data[ADMIN_MODE_KEY] = True

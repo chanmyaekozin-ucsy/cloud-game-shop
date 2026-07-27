@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS orders (
     proof_message_id INTEGER,
     processed_by INTEGER,
     reject_reason TEXT,
+    smile_coin TEXT,
     created_at TEXT DEFAULT (datetime('now')),
     completed_at TEXT,
     FOREIGN KEY (user_id) REFERENCES users(id)
@@ -62,6 +63,7 @@ _ORDER_EXTRA_COLS = (
     ("proof_chat_id", "INTEGER"),
     ("processed_by", "INTEGER"),
     ("reject_reason", "TEXT"),
+    ("smile_coin", "TEXT"),
 )
 
 
@@ -144,6 +146,7 @@ async def create_order(
     server_id: str,
     nickname: str,
     region: str,
+    smile_coin: str = "",
 ) -> dict:
     async with aiosqlite.connect(config.SQLITE_PATH) as db:
         db.row_factory = aiosqlite.Row
@@ -151,8 +154,8 @@ async def create_order(
             """
             INSERT INTO orders (
                 user_id, package_id, package_name, amount_ks, smile_goods_id,
-                game_id, server_id, nickname, region, status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'awaiting_payment')
+                game_id, server_id, nickname, region, smile_coin, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'awaiting_payment')
             """,
             (
                 user_id,
@@ -164,6 +167,7 @@ async def create_order(
                 server_id,
                 nickname,
                 region,
+                str(smile_coin or "").strip(),
             ),
         )
         await db.commit()
@@ -340,6 +344,24 @@ async def claim_kbz_trans(trans_id: str, order_id: int) -> bool:
         await asyncio.to_thread(release_tx, path, tid, bot=bot, ref_id=ref)
         return False
     return True
+
+
+async def list_completed_orders(*, limit: int = 50000) -> list[dict]:
+    """Orders that finished top-up successfully (revenue source)."""
+    async with aiosqlite.connect(config.SQLITE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            """
+            SELECT id, amount_ks, smile_goods_id, package_id, package_name,
+                   smile_coin, created_at, status
+            FROM orders
+            WHERE status = 'completed'
+            ORDER BY id ASC
+            LIMIT ?
+            """,
+            (limit,),
+        )
+        return [dict(r) for r in await cur.fetchall()]
 
 
 async def list_user_orders(user_id: int, *, limit: int = 10) -> list[dict]:

@@ -104,6 +104,8 @@ else:
         PROJECT_ROOT / ".data" / "shop_payment_accounts.json"
     )
 
+SMILE_COIN_KS_RATE = float(os.environ.get("SMILE_COIN_KS_RATE", "84.6"))
+
 MONITOR_ENABLED = os.environ.get("MONITOR_ENABLED", "true").strip().lower() in (
     "1",
     "true",

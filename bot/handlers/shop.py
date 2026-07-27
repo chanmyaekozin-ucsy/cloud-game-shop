@@ -517,6 +517,7 @@ async def _begin_order_for_game(
         server_id=server_id,
         nickname=result.nickname,
         region=result.region,
+        smile_coin=str(plan.get("smile_coin") or "").strip(),
     )
     context.user_data[ORDER_KEY] = order["id"]
     context.user_data[STATE_KEY] = "waiting_confirm"
