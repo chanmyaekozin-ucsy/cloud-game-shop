@@ -21,6 +21,8 @@ from bot.keyboards import (
     main_menu_keyboard,
     payment_method_keyboard,
     plans_inline,
+    save_game_id_keyboard,
+    saved_game_accounts_keyboard,
 )
 from providers.smileone.client import SmileOneClient
 from providers.smileone.mlbb import MlbbAccount
@@ -305,6 +307,18 @@ async def menu_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if state == "waiting_game_id":
         await _handle_game_id(update, context, lang)
         return
+    if state == "waiting_saved_account":
+        # Allow typing a new GameID(Server) instead of tapping New
+        raw = (update.message.text or "").strip()
+        if GAME_ID_RE.match(raw):
+            await _handle_game_id(update, context, lang)
+            return
+        saved = await db.list_saved_game_accounts(row["id"])
+        await update.message.reply_text(
+            i18n.t("choose_saved_game_id", lang),
+            reply_markup=saved_game_accounts_keyboard(saved, lang),
+        )
+        return
 
     digits = re.sub(r"\D", "", text)
     if state == "waiting_tx_digits" or (
@@ -401,8 +415,9 @@ async def callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await _safe_edit_message_text(query, i18n.t("plan_not_found", lang))
             return
         context.user_data[PLAN_KEY] = plan
-        context.user_data[STATE_KEY] = "waiting_game_id"
-        await _safe_edit_message_text(query, i18n.t("game_id_prompt", lang))
+        await _offer_game_id_step(
+            query.message, context, row["id"], lang, edit_query=query
+        )
         return
 
     if data == "order:cancel":
@@ -424,34 +439,67 @@ async def callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await _choose_pay_method(update, context, lang, data)
         return
 
+    if data.startswith("saveacc:"):
+        await _handle_save_account_callback(update, context, lang, data)
+        return
 
-async def _handle_game_id(
-    update: Update,
+    if data.startswith("savedacc:"):
+        await _handle_saved_account_pick(update, context, lang, data)
+        return
+
+
+async def _ask_save_game_id(message, order: dict, lang: str) -> None:
+    """Offer to remember game ID + server after a successful top-up."""
+    nickname = (order.get("nickname") or "").strip()
+    if not nickname:
+        nickname = f"{order.get('game_id')}({order.get('server_id')})"
+    await message.reply_text(
+        i18n.t("save_game_id_ask", lang, nickname=nickname),
+        reply_markup=save_game_id_keyboard(int(order["id"]), lang),
+    )
+
+
+async def _offer_game_id_step(
+    message,
     context: ContextTypes.DEFAULT_TYPE,
+    user_db_id: int,
     lang: str,
+    *,
+    edit_query=None,
 ) -> None:
-    if not update.message:
+    """After plan select: saved accounts picker, or prompt for new Game ID."""
+    saved = await db.list_saved_game_accounts(user_db_id)
+    if saved:
+        context.user_data[STATE_KEY] = "waiting_saved_account"
+        text = i18n.t("choose_saved_game_id", lang)
+        markup = saved_game_accounts_keyboard(saved, lang)
+        if edit_query is not None:
+            await _safe_edit_message_text(edit_query, text, reply_markup=markup)
+        else:
+            await message.reply_text(text, reply_markup=markup)
         return
-    raw = (update.message.text or "").strip()
-    m = GAME_ID_RE.match(raw)
-    if not m:
-        await update.message.reply_text(
-            i18n.t("game_id_invalid", lang),
-            reply_markup=main_menu_keyboard(lang),
-        )
-        return
+    context.user_data[STATE_KEY] = "waiting_game_id"
+    text = i18n.t("game_id_prompt", lang)
+    if edit_query is not None:
+        await _safe_edit_message_text(edit_query, text)
+    else:
+        await message.reply_text(text)
 
-    game_id, server_id = m.group(1), m.group(2)
-    plan = context.user_data.get(PLAN_KEY)
-    if not plan:
-        _clear_flow(context)
-        await update.message.reply_text(i18n.t("session_expired", lang))
-        return
 
-    await update.message.reply_text(i18n.t("checking_account", lang))
+async def _begin_order_for_game(
+    message,
+    context: ContextTypes.DEFAULT_TYPE,
+    *,
+    user,
+    lang: str,
+    plan: dict,
+    game_id: str,
+    server_id: str,
+) -> None:
+    await message.reply_text(i18n.t("checking_account", lang))
     result = SmileOneClient().check_mlbb_account(game_id, server_id)
     if isinstance(result, str):
-        await update.message.reply_text(
+        await message.reply_text(
             f"❌ {result}",
             reply_markup=main_menu_keyboard(lang),
         )
@@ -459,12 +507,6 @@ async def _handle_game_id(
         return
 
     assert isinstance(result, MlbbAccount)
-    user = await db.upsert_user(
-        update.effective_user.id,
-        username=update.effective_user.username,
-        first_name=update.effective_user.first_name,
-    )
-    lang = _lang(context, user)
     order = await db.create_order(
         user["id"],
         package_id=int(plan.get("id", 0)),
@@ -483,12 +525,52 @@ async def _handle_game_id(
     if result.country:
         region_label = f"{result.country} ({result.region})"
 
-    await update.message.reply_text(
+    await message.reply_text(
         f"ID + Server : {game_id}({server_id})\n"
         f"  {result.nickname.upper()}\n"
         f"  {region_label} Region\n\n"
         f"{i18n.t('confirm_account', lang)}",
         reply_markup=confirm_keyboard(lang),
+    )
+
+
+async def _handle_game_id(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    lang: str,
+) -> None:
+    if not update.message or not update.effective_user:
+        return
+    raw = (update.message.text or "").strip()
+    m = GAME_ID_RE.match(raw)
+    if not m:
+        await update.message.reply_text(
+            i18n.t("game_id_invalid", lang),
+            reply_markup=main_menu_keyboard(lang),
+        )
+        return
+
+    game_id, server_id = m.group(1), m.group(2)
+    plan = context.user_data.get(PLAN_KEY)
+    if not plan:
+        _clear_flow(context)
+        await update.message.reply_text(i18n.t("session_expired", lang))
+        return
+
+    user = await db.upsert_user(
+        update.effective_user.id,
+        username=update.effective_user.username,
+        first_name=update.effective_user.first_name,
+    )
+    lang = _lang(context, user)
+    await _begin_order_for_game(
+        update.message,
+        context,
+        user=user,
+        lang=lang,
+        plan=plan,
+        game_id=game_id,
+        server_id=server_id,
     )
 
 
@@ -715,6 +797,7 @@ async def _handle_tx_digits(
             i18n.t("payment_ok", lang),
             reply_markup=main_menu_keyboard(lang),
         )
+        await _ask_save_game_id(update.message, order, lang)
     except Exception as e:
         logger.exception("Top-up failed")
         await db.update_order(order["id"], status="topup_failed", verify_message=str(e))
@@ -731,6 +814,134 @@ async def _handle_tx_digits(
         )
 
     _clear_flow(context)
+
+
+async def _handle_save_account_callback(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    lang: str,
+    data: str,
+) -> None:
+    query = update.callback_query
+    if not query or not query.message or not query.from_user:
+        return
+
+    if data == "saveacc:no":
+        try:
+            await query.edit_message_reply_markup(reply_markup=None)
+        except BadRequest:
+            pass
+        await query.message.reply_text(
+            i18n.t("save_game_id_skipped", lang),
+            reply_markup=main_menu_keyboard(lang),
+        )
+        return
+
+    if not data.startswith("saveacc:yes:"):
+        return
+    try:
+        order_id = int(data.rsplit(":", 1)[1])
+    except ValueError:
+        return
+
+    user = await db.upsert_user(
+        query.from_user.id,
+        username=query.from_user.username,
+        first_name=query.from_user.first_name,
+    )
+    order = await db.get_order(order_id)
+    if not order or int(order["user_id"]) != int(user["id"]):
+        await query.message.reply_text(
+            i18n.t("order_not_found", lang),
+            reply_markup=main_menu_keyboard(lang),
+        )
+        return
+    if not order.get("game_id") or not order.get("server_id"):
+        await query.message.reply_text(
+            i18n.t("session_expired", lang),
+            reply_markup=main_menu_keyboard(lang),
+        )
+        return
+
+    await db.upsert_saved_game_account(
+        user["id"],
+        game_id=str(order["game_id"]),
+        server_id=str(order["server_id"]),
+        nickname=str(order.get("nickname") or ""),
+        region=str(order.get("region") or ""),
+    )
+    try:
+        await query.edit_message_reply_markup(reply_markup=None)
+    except BadRequest:
+        pass
+    await query.message.reply_text(
+        i18n.t("save_game_id_saved", lang),
+        reply_markup=main_menu_keyboard(lang),
+    )
+
+
+async def _handle_saved_account_pick(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    lang: str,
+    data: str,
+) -> None:
+    query = update.callback_query
+    if not query or not query.message or not query.from_user:
+        return
+
+    plan = context.user_data.get(PLAN_KEY)
+    if not plan:
+        _clear_flow(context)
+        await query.message.reply_text(
+            i18n.t("session_expired", lang),
+            reply_markup=main_menu_keyboard(lang),
+        )
+        return
+
+    if data == "savedacc:new":
+        context.user_data[STATE_KEY] = "waiting_game_id"
+        try:
+            await query.edit_message_reply_markup(reply_markup=None)
+        except BadRequest:
+            pass
+        await query.message.reply_text(i18n.t("game_id_prompt", lang))
+        return
+
+    if not data.startswith("savedacc:"):
+        return
+    try:
+        account_id = int(data.split(":", 1)[1])
+    except ValueError:
+        return
+
+    user = await db.upsert_user(
+        query.from_user.id,
+        username=query.from_user.username,
+        first_name=query.from_user.first_name,
+    )
+    saved = await db.get_saved_game_account(account_id, user["id"])
+    if not saved:
+        await query.message.reply_text(
+            i18n.t("session_expired", lang),
+            reply_markup=main_menu_keyboard(lang),
+        )
+        return
+
+    try:
+        await query.edit_message_reply_markup(reply_markup=None)
+    except BadRequest:
+        pass
+
+    await _begin_order_for_game(
+        query.message,
+        context,
+        user=user,
+        lang=lang,
+        plan=plan,
+        game_id=str(saved["game_id"]),
+        server_id=str(saved["server_id"]),
+    )
 
 
 async def _show_history(

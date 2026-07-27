@@ -60,6 +60,58 @@ def confirm_keyboard(lang: str | None = None) -> InlineKeyboardMarkup:
     )
 
 
+def save_game_id_keyboard(order_id: int, lang: str | None = None) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    i18n.t("save_game_id_yes", lang),
+                    callback_data=f"saveacc:yes:{order_id}",
+                ),
+                InlineKeyboardButton(
+                    i18n.t("save_game_id_no", lang),
+                    callback_data="saveacc:no",
+                ),
+            ]
+        ]
+    )
+
+
+def saved_game_accounts_keyboard(
+    accounts: list[dict], lang: str | None = None
+) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    for acct in accounts[:8]:
+        game_id = str(acct.get("game_id") or "")
+        server_id = str(acct.get("server_id") or "")
+        nickname = str(acct.get("nickname") or "").strip()
+        label = f"{game_id}({server_id})"
+        if nickname:
+            label = f"{label} · {nickname}"
+        if len(label) > 64:
+            label = label[:61] + "…"
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    label,
+                    callback_data=f"savedacc:{int(acct['id'])}",
+                )
+            ]
+        )
+    rows.append(
+        [
+            InlineKeyboardButton(
+                i18n.t("new_server_id", lang),
+                callback_data="savedacc:new",
+            )
+        ]
+    )
+    rows.append(
+        [InlineKeyboardButton(i18n.t("back", lang), callback_data="menu:back")]
+    )
+    return InlineKeyboardMarkup(rows)
+
+
 def kbz_copy_phone_keyboard(phone: str, lang: str | None = None) -> InlineKeyboardMarkup:
     rows = []
     if phone:

@@ -290,6 +290,40 @@ _TEXTS: dict[str, dict[str, str]] = {
             "သာယာသောနေ့လေးဖြစ်ပါစေခင်ဗျာ။"
         ),
     },
+    "save_game_id_ask": {
+        LANG_EN: (
+            "Should I save this game ID — {nickname} — "
+            "for your next purchase?"
+        ),
+        LANG_MY: (
+            "ဒီဂိမ်း ID - {nickname} ကို "
+            "နောက်တစ်ကြိမ် ဝယ်ဖို့အတွက် မှတ်ထားပေးရမလားခင်ဗျာ။"
+        ),
+    },
+    "save_game_id_yes": {
+        LANG_EN: "Yes",
+        LANG_MY: "Yes",
+    },
+    "save_game_id_no": {
+        LANG_EN: "No",
+        LANG_MY: "No",
+    },
+    "save_game_id_saved": {
+        LANG_EN: "Saved. You can pick this ID next time you buy.",
+        LANG_MY: "မှတ်ထားပြီးပါပြီ။ နောက်တစ်ကြိမ် ဝယ်တဲ့အခါ ရွေးနိုင်ပါပြီ။",
+    },
+    "save_game_id_skipped": {
+        LANG_EN: "Okay — not saved.",
+        LANG_MY: "ရပါပြီ — မမှတ်ထားပါဘူး။",
+    },
+    "choose_saved_game_id": {
+        LANG_EN: "Choose a saved Game ID + Server, or enter a new one.",
+        LANG_MY: "သိမ်းထားသော Game ID + Server ကို ရွေးပါ။ သို့မဟုတ် အသစ်ထည့်ပါ။",
+    },
+    "new_server_id": {
+        LANG_EN: "New Server + ID",
+        LANG_MY: "New Server + ID",
+    },
     "topup_failed": {
         LANG_EN: (
             "We could not complete your top-up.\n"

@@ -43,6 +43,19 @@ CREATE TABLE IF NOT EXISTS orders (
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_kbz_trans
     ON orders(kbz_trans_id) WHERE kbz_trans_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS saved_game_accounts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    game_id TEXT NOT NULL,
+    server_id TEXT NOT NULL,
+    nickname TEXT NOT NULL DEFAULT '',
+    region TEXT NOT NULL DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(user_id, game_id, server_id),
+    FOREIGN KEY (user_id) REFERENCES users(id)
+);
 """
 
 _ORDER_EXTRA_COLS = (
@@ -340,6 +353,75 @@ async def list_user_orders(user_id: int, *, limit: int = 10) -> list[dict]:
             (user_id, limit),
         )
         return [dict(r) for r in await cur.fetchall()]
+
+
+async def list_saved_game_accounts(user_id: int, *, limit: int = 8) -> list[dict]:
+    async with aiosqlite.connect(config.SQLITE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            """
+            SELECT * FROM saved_game_accounts
+            WHERE user_id = ?
+            ORDER BY updated_at DESC, id DESC
+            LIMIT ?
+            """,
+            (user_id, limit),
+        )
+        return [dict(r) for r in await cur.fetchall()]
+
+
+async def get_saved_game_account(account_id: int, user_id: int) -> dict | None:
+    async with aiosqlite.connect(config.SQLITE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            """
+            SELECT * FROM saved_game_accounts
+            WHERE id = ? AND user_id = ?
+            """,
+            (account_id, user_id),
+        )
+        row = await cur.fetchone()
+        return dict(row) if row else None
+
+
+async def upsert_saved_game_account(
+    user_id: int,
+    *,
+    game_id: str,
+    server_id: str,
+    nickname: str = "",
+    region: str = "",
+) -> dict:
+    async with aiosqlite.connect(config.SQLITE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        await db.execute(
+            """
+            INSERT INTO saved_game_accounts (
+                user_id, game_id, server_id, nickname, region, updated_at
+            ) VALUES (?, ?, ?, ?, ?, datetime('now'))
+            ON CONFLICT(user_id, game_id, server_id) DO UPDATE SET
+                nickname = excluded.nickname,
+                region = excluded.region,
+                updated_at = datetime('now')
+            """,
+            (
+                user_id,
+                str(game_id).strip(),
+                str(server_id).strip(),
+                (nickname or "").strip(),
+                (region or "").strip(),
+            ),
+        )
+        await db.commit()
+        cur = await db.execute(
+            """
+            SELECT * FROM saved_game_accounts
+            WHERE user_id = ? AND game_id = ? AND server_id = ?
+            """,
+            (user_id, str(game_id).strip(), str(server_id).strip()),
+        )
+        row = await cur.fetchone()
+        return dict(row)
 
 
 async def count_users() -> int:

@@ -9,7 +9,7 @@ from telegram import Bot
 
 import database as db
 from bot import i18n
-from bot.keyboards import failure_contact_markup, main_menu_keyboard
+from bot.keyboards import failure_contact_markup, main_menu_keyboard, save_game_id_keyboard
 from services.payment_proofs import update_order_proof
 from services.topup import place_mlbb_order
 
@@ -76,6 +76,14 @@ async def approve_and_topup(
                 telegram_id,
                 i18n.t("payment_ok", lang),
                 reply_markup=main_menu_keyboard(lang),
+            )
+            nickname = (order.get("nickname") or "").strip()
+            if not nickname:
+                nickname = f"{order.get('game_id')}({order.get('server_id')})"
+            await bot.send_message(
+                telegram_id,
+                i18n.t("save_game_id_ask", lang, nickname=nickname),
+                reply_markup=save_game_id_keyboard(int(order_id), lang),
             )
         except Exception:
             logger.exception("Failed to notify user %s of completion", telegram_id)
