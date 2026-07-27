@@ -27,6 +27,7 @@ from providers.smileone.mlbb import MlbbAccount
 from providers.smileone.packages import load_package_lists
 from services.kbz_payment import verify_last5_digits
 from services.payment_proofs import post_order_proof
+from services import shop_payment_catalog
 from services.topup import place_mlbb_order
 from services.wave_payment import verify_last5_digits as verify_wave_last5_digits
 
@@ -130,28 +131,44 @@ def _price_ks(raw: str) -> int:
     return int(m.group().replace(",", ""))
 
 
-def _kbz_pay_instructions(amount_ks: int, lang: str) -> str:
-    name = config.KBZ_PAY_DISPLAY_NAME or "Cloud Game Shop"
-    phone = config.KBZ_PAY_PHONE or "—"
+def _kbz_pay_instructions(amount_ks: int, lang: str, *, name: str, phone: str) -> str:
     return i18n.t(
         "kbz_pay",
         lang,
         amount=i18n.format_amount(amount_ks, lang),
-        name=name,
-        phone=phone,
+        name=name or "Cloud Game Shop",
+        phone=phone or "—",
     )
 
 
-def _wave_pay_instructions(amount_ks: int, lang: str) -> str:
-    name = config.WAVE_PAY_DISPLAY_NAME or config.WAVE_MERCHANT_NAME or "Cloud Game Shop"
-    phone = config.WAVE_PAY_PHONE or config.WAVE_MERCHANT_PHONE or "—"
+def _wave_pay_instructions(amount_ks: int, lang: str, *, name: str, phone: str) -> str:
     return i18n.t(
         "wave_pay",
         lang,
         amount=i18n.format_amount(amount_ks, lang),
-        name=name,
-        phone=phone,
+        name=name or "Cloud Game Shop",
+        phone=phone or "—",
     )
+
+
+async def _reply_pay_unavailable(message, lang: str) -> None:
+    markup = admin_contact_keyboard(lang) or main_menu_keyboard(lang)
+    await message.reply_text(i18n.t("pay_unavailable", lang), reply_markup=markup)
+
+
+async def _offer_pay_method_picker(message, context, lang: str) -> bool:
+    """Show payment methods from Payment Manager catalog. False if unavailable."""
+    methods = shop_payment_catalog.enabled_methods()
+    if not methods:
+        context.user_data.pop(STATE_KEY, None)
+        await _reply_pay_unavailable(message, lang)
+        return False
+    context.user_data[STATE_KEY] = "waiting_pay_method"
+    await message.reply_text(
+        i18n.t("choose_pay_method", lang),
+        reply_markup=payment_method_keyboard(lang, methods=methods),
+    )
+    return True
 
 
 async def _send_pay_instructions(
@@ -160,15 +177,25 @@ async def _send_pay_instructions(
     lang: str,
     *,
     method: str,
+    account: dict | None = None,
 ) -> None:
+    acct = account or shop_payment_catalog.account_for_method(method)
+    name = (acct or {}).get("account_name") or ""
+    phone = (acct or {}).get("account_number") or ""
     if method == "WavePay":
-        text = _wave_pay_instructions(order["amount_ks"], lang)
-        phone = config.WAVE_PAY_PHONE or config.WAVE_MERCHANT_PHONE or ""
+        if not name:
+            name = config.WAVE_PAY_DISPLAY_NAME or config.WAVE_MERCHANT_NAME or ""
+        if not phone:
+            phone = config.WAVE_PAY_PHONE or config.WAVE_MERCHANT_PHONE or ""
+        text = _wave_pay_instructions(order["amount_ks"], lang, name=name, phone=phone)
         sample = config.WAVE_SAMPLE_TX_IMAGE
         example = config.WAVE_TX_EXAMPLE
     else:
-        text = _kbz_pay_instructions(order["amount_ks"], lang)
-        phone = config.KBZ_PAY_PHONE or ""
+        if not name:
+            name = config.KBZ_PAY_DISPLAY_NAME or config.KBZ_MERCHANT_NAME or ""
+        if not phone:
+            phone = config.KBZ_PAY_PHONE or config.KBZ_MERCHANT_PHONE or ""
+        text = _kbz_pay_instructions(order["amount_ks"], lang, name=name, phone=phone)
         sample = config.KBZ_SAMPLE_TX_IMAGE
         example = config.KBZ_TX_EXAMPLE
 
@@ -286,11 +313,7 @@ async def menu_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         and await _resolve_open_order(context, row["id"])
     ):
         if not context.user_data.get(PAY_METHOD_KEY):
-            context.user_data[STATE_KEY] = "waiting_pay_method"
-            await update.message.reply_text(
-                i18n.t("choose_pay_method", lang),
-                reply_markup=payment_method_keyboard(lang),
-            )
+            await _offer_pay_method_picker(update.message, context, lang)
             return
         context.user_data[STATE_KEY] = "waiting_tx_digits"
         await _handle_tx_digits(update, context, lang)
@@ -361,15 +384,11 @@ async def callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if open_order:
             if open_order["status"] == "awaiting_payment":
                 context.user_data[ORDER_KEY] = open_order["id"]
-                context.user_data[STATE_KEY] = "waiting_pay_method"
                 await _safe_edit_message_text(
                     query,
                     i18n.t("order_already_open", lang),
                 )
-                await query.message.reply_text(
-                    i18n.t("choose_pay_method", lang),
-                    reply_markup=payment_method_keyboard(lang),
-                )
+                await _offer_pay_method_picker(query.message, context, lang)
                 return
             elif open_order["status"] == "manual_review":
                 key = "payment_under_review"
@@ -499,12 +518,8 @@ async def _confirm_order(
         await query.message.reply_text(i18n.t("order_not_found", lang))
         return
 
-    context.user_data[STATE_KEY] = "waiting_pay_method"
     await query.edit_message_reply_markup(reply_markup=None)
-    await query.message.reply_text(
-        i18n.t("choose_pay_method", lang),
-        reply_markup=payment_method_keyboard(lang),
-    )
+    await _offer_pay_method_picker(query.message, context, lang)
 
 
 async def _choose_pay_method(
@@ -535,13 +550,24 @@ async def _choose_pay_method(
         return
 
     method = "WavePay" if data == "pay:wave" else "KBZPay"
+    account = shop_payment_catalog.account_for_method(method)
+    if not account:
+        try:
+            await query.edit_message_reply_markup(reply_markup=None)
+        except BadRequest:
+            pass
+        await _reply_pay_unavailable(query.message, lang)
+        return
+
     context.user_data[PAY_METHOD_KEY] = method
     context.user_data[STATE_KEY] = "waiting_tx_digits"
     try:
         await query.edit_message_reply_markup(reply_markup=None)
     except BadRequest:
         pass
-    await _send_pay_instructions(query.message, order, lang, method=method)
+    await _send_pay_instructions(
+        query.message, order, lang, method=method, account=account
+    )
 
 
 async def _handle_tx_digits(

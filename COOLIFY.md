@@ -40,7 +40,8 @@ Copy values from `.env.example` into Coolify **Environment Variables** for this 
 | `KBZ_SESSION_PATH` | `/data/kbz/kbz_session.json` | **Read-only** shared file written by Donimate Payment Manager |
 | `KBZ_CLAIMED_TX_PATH` | `/data/kbz/kbz_claimed_txs.sqlite3` | Shared used-tx ledger (blocks one KBZ transfer across AirVPN + Game Shop) |
 | `WAVE_SESSION_PATH` | `/data/wave/wave_session.json` | **Read-only** Wave session from Payment Manager |
-| `WAVE_MERCHANT_NAME` / `WAVE_PAY_PHONE` | Yes for Wave | Shown on Wave payment screen |
+| `WAVE_MERCHANT_NAME` / `WAVE_PAY_PHONE` | Yes for Wave | Shown on Wave payment screen (overridden by Payment Manager catalog when ON) |
+| `SHOP_PAYMENT_ACCOUNTS_PATH` | `/data/payments/shop_payment_accounts.json` | **Read-only** ON/OFF catalog from Payment Manager |
 
 Coolify injects these at runtime; `.env` is not shipped in the image.
 
@@ -53,33 +54,37 @@ The compose file mounts:
 | `bot-data` → `/app/.data` | **Private** — SQLite, Smile.one session + browser profile |
 | host `/data/kbz` → `/data/kbz` | **Shared** merchant `kbz_session.json` + claimed txs |
 | host `/data/wave` → `/data/wave` | **Shared** merchant `wave_session.json` |
+| host `/data/payments` → `/data/payments` | **Shared** shop payment ON/OFF catalog (PM writes) |
 
 Set:
 
 ```
 KBZ_SESSION_PATH=/data/kbz/kbz_session.json
 WAVE_SESSION_PATH=/data/wave/wave_session.json
+SHOP_PAYMENT_ACCOUNTS_PATH=/data/payments/shop_payment_accounts.json
 # Optional override (default: same folder as session)
 # KBZ_CLAIMED_TX_PATH=/data/kbz/kbz_claimed_txs.sqlite3
 ```
 
-**Do not** put Smile browser profile or SQLite on the shared volume. Only the KBZ session file is shared.
+**Do not** put Smile browser profile or SQLite on the shared volume. Only wallet sessions + payment catalog are shared.
 
 ### Shared KBZ session (Payment Manager is the only writer)
 
 On the host once:
 
 ```bash
-sudo mkdir -p /data/kbz
-sudo chmod 750 /data/kbz
+sudo mkdir -p /data/kbz /data/wave /data/payments
+sudo chmod 750 /data/kbz /data/wave /data/payments
 ```
 
 | Role | App |
 |------|-----|
-| **Write** session (login, upload, logout, history PIN) | **Donimate Payment Manager only** |
-| **Read** session (payment verify, balance display) | Cloud Game Shop, AirVPN |
+| **Write** session + shop catalog | **Donimate Payment Manager only** |
+| **Read** session + catalog (verify / pay UI) | Cloud Game Shop, AirVPN |
 
-Attach host `/data/kbz` to all three containers. Shop bots must **not** upload tokens, refresh from Frida logs, or run KBZ login.
+Attach host `/data/kbz`, `/data/wave`, and `/data/payments` to all three containers. Shop bots must **not** upload tokens, refresh from Frida logs, run wallet login, or edit the catalog.
+
+Enable accounts per shop from Payment Manager → **Shop Payments**. Zero ON accounts → buyers get Admin redirect only.
 
 Seed / renew the session from Payment Manager (Session menu or Login).
 

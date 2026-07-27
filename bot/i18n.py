@@ -256,6 +256,16 @@ _TEXTS: dict[str, dict[str, str]] = {
         LANG_EN: "Message Admin",
         LANG_MY: "Admin ကို စာပို့မယ်",
     },
+    "pay_unavailable": {
+        LANG_EN: (
+            "Payment is not available right now.\n"
+            "Please contact Admin directly."
+        ),
+        LANG_MY: (
+            "လက်ရှိမှာ ငွေပေးချေမှု မရနိုင်သေးပါဘူးခင်ဗျာ။\n"
+            "ကျေးဇူးပြုပြီး Admin ထံ တိုက်ရိုက် ဆက်သွယ်ပေးပါ။"
+        ),
+    },
     "no_orders": {
         LANG_EN: "No orders yet.",
         LANG_MY: "မှတ်တမ်း မရှိသေးပါ။",

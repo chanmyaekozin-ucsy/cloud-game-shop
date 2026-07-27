@@ -93,6 +93,17 @@ WAVE_VERIFY_SSL = os.environ.get("WAVE_VERIFY_SSL", "true").strip().lower() in (
     "yes",
 )
 
+# Shared shop payment ON/OFF catalog (Payment Manager writes; this shop reads)
+_env_shop_pay = os.environ.get("SHOP_PAYMENT_ACCOUNTS_PATH", "").strip()
+if _env_shop_pay:
+    SHOP_PAYMENT_ACCOUNTS_PATH = _env_shop_pay
+elif Path(KBZ_SESSION_PATH).as_posix().startswith("/data/"):
+    SHOP_PAYMENT_ACCOUNTS_PATH = "/data/payments/shop_payment_accounts.json"
+else:
+    SHOP_PAYMENT_ACCOUNTS_PATH = str(
+        PROJECT_ROOT / ".data" / "shop_payment_accounts.json"
+    )
+
 MONITOR_ENABLED = os.environ.get("MONITOR_ENABLED", "true").strip().lower() in (
     "1",
     "true",
