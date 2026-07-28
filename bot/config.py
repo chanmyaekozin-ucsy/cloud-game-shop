@@ -82,9 +82,12 @@ WAVE_PAY_DISPLAY_NAME = os.environ.get(
     "WAVE_PAY_DISPLAY_NAME", WAVE_MERCHANT_NAME
 ).strip()
 WAVE_PAY_PHONE = os.environ.get("WAVE_PAY_PHONE", WAVE_MERCHANT_PHONE).strip()
-WAVE_TX_EXAMPLE = os.environ.get("WAVE_TX_EXAMPLE", KBZ_TX_EXAMPLE).strip()
+WAVE_TX_EXAMPLE = os.environ.get("WAVE_TX_EXAMPLE", "63265").strip()
 WAVE_SAMPLE_TX_IMAGE = Path(
-    os.environ.get("WAVE_SAMPLE_TX_IMAGE", str(KBZ_SAMPLE_TX_IMAGE))
+    os.environ.get(
+        "WAVE_SAMPLE_TX_IMAGE",
+        str(PROJECT_ROOT / "data" / "sample_wave_txid.jpg"),
+    )
 )
 WAVE_HTTP_PROXY = os.environ.get("WAVE_HTTP_PROXY", "").strip() or None
 WAVE_VERIFY_SSL = os.environ.get("WAVE_VERIFY_SSL", "true").strip().lower() in (

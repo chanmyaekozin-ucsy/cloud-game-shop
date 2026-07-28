@@ -353,8 +353,8 @@ _TEXTS: dict[str, dict[str, str]] = {
         LANG_MY: "« နောက်သို့",
     },
     "tx_example_caption": {
-        LANG_EN: "Eg - {example}",
-        LANG_MY: "ဥပမာ - {example}",
+        LANG_EN: "Eg . {example}",
+        LANG_MY: "ဥပမာ . {example}",
     },
 }
 
