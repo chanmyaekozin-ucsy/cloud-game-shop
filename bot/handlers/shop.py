@@ -340,8 +340,21 @@ async def menu_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
 
     digits = re.sub(r"\D", "", text)
+    # Gateway flow: digits are not used — Check payment button only
+    if state == "waiting_gateway_check":
+        order = await _resolve_open_order(context, row["id"])
+        prompt = (
+            "No need to type digits. Pay the exact amount, then tap Check payment."
+            if lang == "en"
+            else "နံပါတ်ရိုက်စရာ မလိုပါ။ အတိအကျ ပမာဏ ပေးပြီး Check payment ကို နှိပ်ပါ။"
+        )
+        await update.message.reply_text(
+            prompt,
+            reply_markup=payment_check_keyboard(order["id"], lang) if order else None,
+        )
+        return
     if state == "waiting_tx_digits" or (
-        state not in ("waiting_pay_method", "waiting_game_id", "waiting_confirm")
+        state not in ("waiting_pay_method", "waiting_game_id", "waiting_confirm", "waiting_gateway_check")
         and TX_SUFFIX_RE.match(digits)
         and await _resolve_open_order(context, row["id"])
     ):
