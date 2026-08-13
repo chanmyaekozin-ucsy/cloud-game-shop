@@ -19,6 +19,7 @@ from bot.keyboards import (
     failure_contact_markup,
     kbz_copy_phone_keyboard,
     main_menu_keyboard,
+    payment_check_keyboard,
     payment_method_keyboard,
     plans_inline,
     save_game_id_keyboard,
@@ -29,7 +30,7 @@ from providers.smileone.mlbb import MlbbAccount
 from providers.smileone.packages import load_package_lists
 from services.kbz_payment import verify_last5_digits
 from services.payment_proofs import post_order_proof
-from services import shop_payment_catalog
+from services import dominate_gateway, shop_payment_catalog
 from services.topup import place_mlbb_order
 from services.wave_payment import verify_last5_digits as verify_wave_last5_digits
 
@@ -43,6 +44,7 @@ ORDER_KEY = "pending_order_id"
 PLAN_KEY = "pending_plan"
 LANG_KEY = "language"
 PAY_METHOD_KEY = "pay_method"
+GATEWAY_DEPOSIT_KEY = "gateway_deposit_id"
 
 
 def _input_text(update: Update) -> str:
@@ -62,6 +64,7 @@ def _clear_flow(context: ContextTypes.DEFAULT_TYPE) -> None:
     context.user_data.pop(ORDER_KEY, None)
     context.user_data.pop(PLAN_KEY, None)
     context.user_data.pop(PAY_METHOD_KEY, None)
+    context.user_data.pop(GATEWAY_DEPOSIT_KEY, None)
 
 
 async def _cancel_open_awaiting_order(
@@ -180,10 +183,15 @@ async def _send_pay_instructions(
     *,
     method: str,
     account: dict | None = None,
+    deposit: dict | None = None,
 ) -> None:
     acct = account or shop_payment_catalog.account_for_method(method)
     name = (acct or {}).get("account_name") or ""
     phone = (acct or {}).get("account_number") or ""
+    if deposit:
+        payee = deposit.get("payee") or {}
+        name = str(payee.get("display_name") or name)
+        phone = str(payee.get("msisdn") or phone)
     if method == "WavePay":
         if not name:
             name = config.WAVE_PAY_DISPLAY_NAME or config.WAVE_MERCHANT_NAME or ""
@@ -205,13 +213,24 @@ async def _send_pay_instructions(
         text,
         reply_markup=kbz_copy_phone_keyboard(phone, lang),
     )
+    if deposit:
+        prompt = (
+            "After you pay the exact amount, tap Check payment."
+            if lang == "en"
+            else "အတိအကျ ပမာဏ ပေးပြီးပါက Check payment ကို နှိပ်ပါ။"
+        )
+        await message.reply_text(
+            prompt,
+            reply_markup=payment_check_keyboard(int(order["id"]), lang),
+        )
+        return
+
     caption = i18n.t("tx_example_caption", lang, example=example)
     if sample.is_file():
         await message.reply_photo(photo=str(sample), caption=caption)
     else:
         await message.reply_text(caption)
     await message.reply_text(i18n.t("tx_digits_prompt", lang))
-
 
 async def _cmd_start_impl(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.message or not update.effective_user:
@@ -439,6 +458,10 @@ async def callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await _choose_pay_method(update, context, lang, data)
         return
 
+    if data.startswith("pay:check:"):
+        await _handle_gateway_paycheck(update, context, lang, data)
+        return
+
     if data.startswith("saveacc:"):
         await _handle_save_account_callback(update, context, lang, data)
         return
@@ -643,14 +666,167 @@ async def _choose_pay_method(
         return
 
     context.user_data[PAY_METHOD_KEY] = method
-    context.user_data[STATE_KEY] = "waiting_tx_digits"
+    deposit = None
+    if dominate_gateway.gateway_configured():
+        try:
+            deposit = await asyncio.to_thread(
+                dominate_gateway.create_deposit,
+                account_id=str(account.get("id") or ""),
+                amount_ks=int(order["amount_ks"]),
+                external_ref=f"cgs-order-{order_id}",
+            )
+            context.user_data[GATEWAY_DEPOSIT_KEY] = deposit.get("id")
+            context.user_data[STATE_KEY] = "waiting_gateway_check"
+        except Exception:
+            logger.exception("Gateway create_deposit failed for order %s", order_id)
+            await _reply_pay_unavailable(query.message, lang)
+            return
+    else:
+        context.user_data[STATE_KEY] = "waiting_tx_digits"
     try:
         await query.edit_message_reply_markup(reply_markup=None)
     except BadRequest:
         pass
     await _send_pay_instructions(
-        query.message, order, lang, method=method, account=account
+        query.message,
+        order,
+        lang,
+        method=method,
+        account=account,
+        deposit=deposit,
     )
+
+
+async def _handle_gateway_paycheck(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    lang: str,
+    data: str,
+) -> None:
+    query = update.callback_query
+    if not query or not query.message or not query.from_user:
+        return
+    try:
+        order_id = int(data.split(":")[-1])
+    except ValueError:
+        await query.answer()
+        return
+
+    deposit_id = context.user_data.get(GATEWAY_DEPOSIT_KEY)
+    if not deposit_id:
+        await query.answer("Payment session expired.", show_alert=True)
+        return
+
+    user_row = await db.upsert_user(
+        query.from_user.id,
+        username=query.from_user.username,
+        first_name=query.from_user.first_name,
+    )
+    order = await db.get_order(order_id)
+    if not order or order["user_id"] != user_row["id"]:
+        await query.answer("Order not found.", show_alert=True)
+        return
+    if order["status"] != "awaiting_payment":
+        await query.answer("Already processed.", show_alert=True)
+        return
+
+    await query.answer()
+    await query.message.reply_text(i18n.t("checking_tx", lang))
+    try:
+        deposit = await asyncio.to_thread(dominate_gateway.get_deposit, str(deposit_id))
+    except Exception:
+        logger.exception("Gateway get_deposit failed for order %s", order_id)
+        await query.message.reply_text(
+            i18n.t("payment_under_review", lang),
+            reply_markup=main_menu_keyboard(lang),
+        )
+        return
+
+    status = str(deposit.get("status") or "")
+    if status == "pending":
+        await query.message.reply_text(
+            "Payment not found yet. Pay the exact amount, then tap Check payment again."
+            if lang == "en"
+            else "ငွေမရသေးပါ။ အတိအကျ ပမာဏ ပေးပြီး Check payment ကို ထပ်နှိပ်ပါ။",
+            reply_markup=payment_check_keyboard(order_id, lang),
+        )
+        return
+    if status == "expired":
+        await db.update_order(
+            order_id,
+            verify_status="expired",
+            verify_message="Gateway deposit expired",
+            status="payment_failed",
+        )
+        await query.message.reply_text(
+            i18n.t("payment_failed", lang),
+            reply_markup=failure_contact_markup(lang),
+        )
+        _clear_flow(context)
+        return
+    if status != "paid":
+        await query.message.reply_text(
+            i18n.t("payment_failed", lang),
+            reply_markup=failure_contact_markup(lang),
+        )
+        _clear_flow(context)
+        return
+
+    tx_id = str(deposit.get("matched_order_id") or deposit.get("id") or "")
+    claimed = await db.claim_kbz_trans(tx_id, order_id)
+    if not claimed:
+        await query.message.reply_text(
+            i18n.t("tx_already_used", lang),
+            reply_markup=failure_contact_markup(lang),
+        )
+        _clear_flow(context)
+        return
+
+    await db.update_order(
+        order_id,
+        kbz_trans_id=tx_id,
+        verify_status="ok",
+        verify_message=f"Gateway deposit {deposit_id}",
+        status="processing",
+    )
+    order["kbz_trans_id"] = tx_id
+    user_row["telegram_id"] = query.from_user.id
+    await post_order_proof(
+        update.get_bot(),
+        order=order,
+        user=user_row,
+        status="auto_approved",
+    )
+    await query.message.reply_text(i18n.t("payment_verified", lang))
+    await query.message.reply_text(i18n.t("topup_processing", lang))
+    try:
+        msg = await asyncio.to_thread(
+            place_mlbb_order,
+            smile_goods_id=order["smile_goods_id"],
+            game_id=order["game_id"],
+            server_id=order["server_id"],
+            package_name=order["package_name"],
+        )
+        await db.update_order(order_id, status="completed")
+        await post_order_proof(
+            update.get_bot(),
+            order=order,
+            user=user_row,
+            status="completed",
+            note=msg,
+        )
+        await query.message.reply_text(
+            i18n.t("payment_ok", lang),
+            reply_markup=main_menu_keyboard(lang),
+        )
+    except Exception as exc:
+        logger.exception("Topup failed after gateway pay for order %s", order_id)
+        await db.update_order(order_id, status="manual_review", verify_message=str(exc)[:400])
+        await query.message.reply_text(
+            i18n.t("payment_under_review", lang),
+            reply_markup=main_menu_keyboard(lang),
+        )
+    _clear_flow(context)
 
 
 async def _handle_tx_digits(

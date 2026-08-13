@@ -107,6 +107,10 @@ else:
         PROJECT_ROOT / ".data" / "shop_payment_accounts.json"
     )
 
+# Dominate Payment Gateway (preferred over shared catalog/session verify)
+DOMINATE_GATEWAY_URL = os.environ.get("DOMINATE_GATEWAY_URL", "").strip().rstrip("/")
+DOMINATE_GATEWAY_API_KEY = os.environ.get("DOMINATE_GATEWAY_API_KEY", "").strip()
+
 SMILE_COIN_KS_RATE = float(os.environ.get("SMILE_COIN_KS_RATE", "84.6"))
 
 MONITOR_ENABLED = os.environ.get("MONITOR_ENABLED", "true").strip().lower() in (

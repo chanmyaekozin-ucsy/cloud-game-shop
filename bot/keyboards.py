@@ -134,6 +134,40 @@ def kbz_copy_phone_keyboard(phone: str, lang: str | None = None) -> InlineKeyboa
     return InlineKeyboardMarkup(rows)
 
 
+def payment_check_keyboard(order_id: int, lang: str | None = None) -> InlineKeyboardMarkup:
+    label = "Check payment" if lang == "en" else "ေငြပေးပြီးစစ်မည်"
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton(label, callback_data=f"pay:check:{order_id}")],
+            [
+                InlineKeyboardButton(
+                    f"❌ {i18n.t('cancel', lang)}",
+                    callback_data="order:cancel",
+                )
+            ],
+        ]
+    )
+    rows = []
+    if phone:
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    i18n.t("copy_phone", lang),
+                    copy_text=CopyTextButton(text=phone),
+                )
+            ]
+        )
+    rows.append(
+        [
+            InlineKeyboardButton(
+                f"❌ {i18n.t('cancel', lang)}",
+                callback_data="order:cancel",
+            )
+        ]
+    )
+    return InlineKeyboardMarkup(rows)
+
+
 def payment_method_keyboard(
     lang: str | None = None, *, methods: list[str] | None = None
 ) -> InlineKeyboardMarkup:

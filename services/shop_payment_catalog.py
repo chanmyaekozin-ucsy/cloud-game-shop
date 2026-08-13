@@ -1,4 +1,4 @@
-"""Read-only shop payment catalog (Payment Manager is the sole writer)."""
+"""Payment accounts for Cloud Game Shop — Dominate Gateway API (preferred) or shared catalog file."""
 from __future__ import annotations
 
 import json
@@ -17,20 +17,17 @@ def catalog_path() -> Path:
     return Path(config.SHOP_PAYMENT_ACCOUNTS_PATH)
 
 
-def load_catalog() -> dict[str, Any] | None:
-    path = catalog_path()
-    if not path.is_file():
-        return None
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        logger.exception("Failed to read shop payment catalog at %s", path)
-        return None
-    return raw if isinstance(raw, dict) else None
-
-
 def enabled_accounts() -> list[dict[str, Any]]:
-    data = load_catalog()
+    from services import dominate_gateway
+
+    if dominate_gateway.gateway_configured():
+        try:
+            return dominate_gateway.list_payment_methods()
+        except Exception:
+            logger.exception("Dominate gateway payment-methods failed")
+            return []
+
+    data = _load_catalog_file()
     if not data:
         return []
     out: list[dict[str, Any]] = []
@@ -52,6 +49,18 @@ def enabled_accounts() -> list[dict[str, Any]]:
             }
         )
     return out
+
+
+def _load_catalog_file() -> dict[str, Any] | None:
+    path = catalog_path()
+    if not path.is_file():
+        return None
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        logger.exception("Failed to read shop payment catalog at %s", path)
+        return None
+    return raw if isinstance(raw, dict) else None
 
 
 def enabled_methods() -> list[str]:
