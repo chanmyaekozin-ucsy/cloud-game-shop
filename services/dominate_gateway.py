@@ -94,3 +94,23 @@ def get_deposit(deposit_id: str, timeout: float = 25.0) -> dict[str, Any]:
             detail = resp.text
         raise RuntimeError(detail or f"HTTP {resp.status_code}")
     return resp.json()
+
+
+def verify_deposit_last5(
+    deposit_id: str, last5: str, timeout: float = 30.0
+) -> dict[str, Any]:
+    """Match deposit by amount + TrxID last 5 digits."""
+    url = f"{_base()}/v1/deposits/{deposit_id}/verify"
+    resp = requests.post(
+        url, headers=_headers(), json={"last5": str(last5).strip()}, timeout=timeout
+    )
+    if resp.status_code == 404:
+        raise RuntimeError("Deposit not found")
+    if resp.status_code >= 400:
+        detail = ""
+        try:
+            detail = str((resp.json() or {}).get("detail") or resp.text)
+        except Exception:
+            detail = resp.text
+        raise RuntimeError(detail or f"HTTP {resp.status_code}")
+    return resp.json()

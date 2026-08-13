@@ -213,24 +213,14 @@ async def _send_pay_instructions(
         text,
         reply_markup=kbz_copy_phone_keyboard(phone, lang),
     )
-    if deposit:
-        prompt = (
-            "After you pay the exact amount, tap Check payment."
-            if lang == "en"
-            else "အတိအကျ ပမာဏ ပေးပြီးပါက Check payment ကို နှိပ်ပါ။"
-        )
-        await message.reply_text(
-            prompt,
-            reply_markup=payment_check_keyboard(int(order["id"]), lang),
-        )
-        return
-
+    # Always last-5 digits (gateway or local). No Check payment button.
     caption = i18n.t("tx_example_caption", lang, example=example)
     if sample.is_file():
         await message.reply_photo(photo=str(sample), caption=caption)
     else:
         await message.reply_text(caption)
     await message.reply_text(i18n.t("tx_digits_prompt", lang))
+    context.user_data[STATE_KEY] = "waiting_tx_digits"
 
 async def _cmd_start_impl(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.message or not update.effective_user:
@@ -340,21 +330,8 @@ async def menu_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
 
     digits = re.sub(r"\D", "", text)
-    # Gateway flow: digits are not used — Check payment button only
-    if state == "waiting_gateway_check":
-        order = await _resolve_open_order(context, row["id"])
-        prompt = (
-            "No need to type digits. Pay the exact amount, then tap Check payment."
-            if lang == "en"
-            else "နံပါတ်ရိုက်စရာ မလိုပါ။ အတိအကျ ပမာဏ ပေးပြီး Check payment ကို နှိပ်ပါ။"
-        )
-        await update.message.reply_text(
-            prompt,
-            reply_markup=payment_check_keyboard(order["id"], lang) if order else None,
-        )
-        return
     if state == "waiting_tx_digits" or (
-        state not in ("waiting_pay_method", "waiting_game_id", "waiting_confirm", "waiting_gateway_check")
+        state not in ("waiting_pay_method", "waiting_game_id", "waiting_confirm")
         and TX_SUFFIX_RE.match(digits)
         and await _resolve_open_order(context, row["id"])
     ):
@@ -472,7 +449,12 @@ async def callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
 
     if data.startswith("pay:check:"):
-        await _handle_gateway_paycheck(update, context, lang, data)
+        await query.answer()
+        await query.message.reply_text(
+            "Send the last 5 digits of the TrxID."
+            if lang == "en"
+            else "TrxID နောက်ဆုံး ၅ လုံး ပို့ပါ။",
+        )
         return
 
     if data.startswith("saveacc:"):
@@ -689,7 +671,7 @@ async def _choose_pay_method(
                 external_ref=f"cgs-order-{order_id}",
             )
             context.user_data[GATEWAY_DEPOSIT_KEY] = deposit.get("id")
-            context.user_data[STATE_KEY] = "waiting_gateway_check"
+            context.user_data[STATE_KEY] = "waiting_tx_digits"
         except Exception:
             logger.exception("Gateway create_deposit failed for order %s", order_id)
             await _reply_pay_unavailable(query.message, lang)
@@ -886,6 +868,116 @@ async def _handle_tx_digits(
 
     await update.message.reply_text(i18n.t("checking_tx", lang))
     method = context.user_data.get(PAY_METHOD_KEY) or "KBZPay"
+    deposit_id = context.user_data.get(GATEWAY_DEPOSIT_KEY)
+
+    if deposit_id and dominate_gateway.gateway_configured():
+        try:
+            deposit = await asyncio.to_thread(
+                dominate_gateway.verify_deposit_last5, str(deposit_id), digits
+            )
+        except Exception as exc:
+            logger.exception("Gateway last5 verify failed for order %s", order_id)
+            await update.message.reply_text(
+                "Payment not found yet. Pay the exact amount, then send the last 5 digits again."
+                if lang == "en"
+                else "ငွေမရသေးပါ။ အတိအကျ ပမာဏ ပေးပြီး TrxID နောက်ဆုံး ၅ လုံး ထပ်ပို့ပါ။",
+            )
+            await db.update_order(
+                order["id"],
+                verify_status="pending",
+                verify_message=f"Last5: {digits}. Gateway: {exc}",
+            )
+            return
+
+        status = str(deposit.get("status") or "")
+        if status == "pending":
+            await update.message.reply_text(
+                "Payment not found yet. Pay the exact amount, then send the last 5 digits again."
+                if lang == "en"
+                else "ငွေမရသေးပါ။ အတိအကျ ပမာဏ ပေးပြီး TrxID နောက်ဆုံး ၅ လုံး ထပ်ပို့ပါ။",
+            )
+            return
+        if status == "expired":
+            await db.update_order(
+                order_id,
+                verify_status="expired",
+                verify_message="Gateway deposit expired",
+                status="payment_failed",
+            )
+            await update.message.reply_text(
+                i18n.t("payment_failed", lang),
+                reply_markup=failure_contact_markup(lang),
+            )
+            _clear_flow(context)
+            return
+        if status != "paid":
+            await update.message.reply_text(
+                i18n.t("payment_failed", lang),
+                reply_markup=failure_contact_markup(lang),
+            )
+            _clear_flow(context)
+            return
+
+        tx_id = str(deposit.get("matched_order_id") or deposit.get("id") or "")
+        claimed = await db.claim_kbz_trans(tx_id, order_id)
+        if not claimed:
+            await update.message.reply_text(
+                i18n.t("tx_already_used", lang),
+                reply_markup=failure_contact_markup(lang),
+            )
+            _clear_flow(context)
+            return
+
+        await db.update_order(
+            order_id,
+            kbz_trans_id=tx_id,
+            verify_status="ok",
+            verify_message=f"Gateway deposit {deposit_id} last5={digits}",
+            status="processing",
+        )
+        order["kbz_trans_id"] = tx_id
+        user_row["telegram_id"] = update.effective_user.id
+        await post_order_proof(
+            update.get_bot(),
+            order=order,
+            user=user_row,
+            status="auto_approved",
+        )
+        await update.message.reply_text(i18n.t("payment_verified", lang))
+        await update.message.reply_text(i18n.t("topup_processing", lang))
+        try:
+            msg = await asyncio.to_thread(
+                place_mlbb_order,
+                smile_goods_id=order["smile_goods_id"],
+                game_id=order["game_id"],
+                server_id=order["server_id"],
+                package_name=order["package_name"],
+            )
+            await db.update_order(order_id, status="completed")
+            await post_order_proof(
+                update.get_bot(),
+                order=order,
+                user=user_row,
+                status="completed",
+                note=msg,
+            )
+            await update.message.reply_text(
+                i18n.t("payment_ok", lang),
+                reply_markup=main_menu_keyboard(lang),
+            )
+            await _ask_save_game_id(update.message, order, lang)
+        except Exception as exc:
+            logger.exception("Topup failed after gateway last5 for order %s", order_id)
+            await db.update_order(
+                order_id, status="manual_review", verify_message=str(exc)[:400]
+            )
+            await update.message.reply_text(
+                i18n.t("payment_under_review", lang),
+                reply_markup=main_menu_keyboard(lang),
+            )
+        _clear_flow(context)
+        return
+
     if method == "WavePay":
         result = await verify_wave_last5_digits(digits, order["amount_ks"])
     else:
