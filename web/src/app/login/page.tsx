@@ -9,7 +9,7 @@ function LoginForm() {
   const router = useRouter();
   const search = useSearchParams();
   const { refresh } = useAuth();
-  const [identifier, setIdentifier] = useState("09970000000");
+  const [identifier, setIdentifier] = useState("");
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -61,11 +61,6 @@ function LoginForm() {
         <button className="btn" disabled={busy} type="submit">
           {busy ? "Signing in…" : "Sign in"}
         </button>
-        <p className="hint" style={{ marginTop: 14, marginBottom: 0 }}>
-          Demo user 09970000000 · PIN 123456
-          <br />
-          Admin admin@cloudgameshop.com · PIN 123456
-        </p>
       </form>
     </div>
   );

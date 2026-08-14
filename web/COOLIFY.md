@@ -78,6 +78,8 @@ Set these in Coolify for the **web** resource (not the bot):
 | Variable | Example | Notes |
 |----------|---------|-------|
 | `AUTH_SECRET` | long random string | **Required** in production |
+| `ADMIN_EMAIL` | `admin@…` | Admin login email (not shown in UI) |
+| `ADMIN_PIN` | 6 digits | Admin login PIN |
 | `DOMINATE_GATEWAY_URL` | `http://<dominate-internal>:8080` | Same-VPS: Coolify internal hostname or `http://host.docker.internal:PORT` / host IP |
 | `DOMINATE_GATEWAY_API_KEY` | `pg_…` | Cloud Game Shop project key from Dominate |
 | `SMILE_REGION` | `br` | |

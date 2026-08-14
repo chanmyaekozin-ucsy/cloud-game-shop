@@ -8,7 +8,7 @@ import { useAuth } from "@/components/Auth";
 export default function AdminLoginPage() {
   const router = useRouter();
   const { refresh } = useAuth();
-  const [identifier, setIdentifier] = useState("admin@cloudgameshop.com");
+  const [identifier, setIdentifier] = useState("");
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);

@@ -11,7 +11,7 @@ npm run dev
 | Role | Login | PIN |
 |------|-------|-----|
 | User | `09970000000` | `123456` |
-| Admin | `admin@cloudgameshop.com` | `123456` |
+| Admin | from `ADMIN_EMAIL` / `ADMIN_PIN` in `.env` | |
 
 **Standalone web** — after a package, choose KBZPay or WavePay, transfer, then confirm with TxID last 5.
 

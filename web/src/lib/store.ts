@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from "fs/promises";
 import path from "path";
-import { mergeCatalog, seedStore } from "./seed";
+import { mergeCatalog, seedStore, syncAdminFromEnv } from "./seed";
 import type { Store } from "./types";
 
 const FILE = path.join(process.cwd(), "data", "store.json");
@@ -28,7 +28,9 @@ async function readRaw(): Promise<Store> {
     const raw = await readFile(FILE, "utf8");
     const store = JSON.parse(raw) as Store;
     mergeCatalog(store);
-    if (expireStaleOrders(store)) await writeRaw(store);
+    let dirty = expireStaleOrders(store);
+    if (syncAdminFromEnv(store)) dirty = true;
+    if (dirty) await writeRaw(store);
     return store;
   } catch {
     const seeded = seedStore();
