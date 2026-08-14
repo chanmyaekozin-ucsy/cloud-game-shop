@@ -47,7 +47,7 @@ export function seedStore(): Store {
 export function syncAdminFromEnv(store: Store) {
   const { email, pin } = adminCredentials();
   const pinHash = hashPin(pin);
-  let admin = store.users.find((u) => u.id === "user_admin" || u.role === "admin");
+  const admin = store.users.find((u) => u.id === "user_admin" || u.role === "admin");
   if (!admin) {
     const created: User = {
       id: "user_admin",
