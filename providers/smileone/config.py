@@ -7,7 +7,6 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DATA_DIR = PROJECT_ROOT / ".data"
-SESSION_PATH = DATA_DIR / "smileone_session.json"
 BROWSER_PROFILE_DIR = DATA_DIR / "browser_profile"
 PROFILE_SETUP_FLAG = DATA_DIR / "browser_profile_ready"
 
@@ -29,12 +28,10 @@ def load_env(path: Path | None = None, *, override: bool = False) -> None:
         return
     for raw in env_path.read_text(encoding="utf-8").splitlines():
         line = raw.strip()
-        if not line or line.startswith("#"):
+        if not line or line.startswith("#") or "=" not in line:
             continue
         if line.startswith("export "):
             line = line[7:].lstrip()
-        if "=" not in line:
-            continue
         key, _, val = line.partition("=")
         key = key.strip()
         if not key:
@@ -44,6 +41,25 @@ def load_env(path: Path | None = None, *, override: bool = False) -> None:
             val = val[1:-1]
         if override or key not in os.environ:
             os.environ[key] = val
+
+
+def session_path() -> Path:
+    """
+    Smile.one cookie session file.
+
+    Coolify (shared with web Admin → Supplier):
+      SMILE_SESSION_PATH=/data/smileone/smileone_session.json
+    Local default:
+      .data/smileone_session.json
+    """
+    raw = (os.environ.get("SMILE_SESSION_PATH") or "").strip()
+    if raw:
+        return Path(raw).expanduser()
+    return DATA_DIR / "smileone_session.json"
+
+
+# Back-compat alias — prefer session_path() so env is read after load_env().
+SESSION_PATH = DATA_DIR / "smileone_session.json"
 
 
 def region() -> str:
@@ -102,3 +118,9 @@ def login_url() -> str:
 def ensure_data_dir() -> Path:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     return DATA_DIR
+
+
+def ensure_session_parent() -> Path:
+    path = session_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path.parent

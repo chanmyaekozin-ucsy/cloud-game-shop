@@ -1,5 +1,16 @@
 # Deploy Cloud Game Shop on Coolify
 
+Two resources on the **same VPS**:
+
+| App | Docs |
+|-----|------|
+| **Web shop** (`cloudgameshop.flash-myanmar.com`) | [`web/COOLIFY.md`](web/COOLIFY.md) |
+| **Telegram bot** (worker, no domain) | sections below |
+
+---
+
+# Telegram bot (worker)
+
 This bot is a **long-running worker** (Telegram polling + Playwright). It does not expose an HTTP port.
 
 ## Prerequisites
@@ -32,6 +43,7 @@ Copy values from `.env.example` into Coolify **Environment Variables** for this 
 | `KBZ_PAY_PHONE` | Yes | |
 | `SMILE_REGION` | Yes | e.g. `br` |
 | `SMILE_ORDER_URL` | Yes | e.g. `https://www.smile.one/br/customer/order` |
+| `SMILE_SESSION_PATH` | Yes on Coolify | `/data/smileone/smileone_session.json` (shared with web) |
 | `GEMINI_KEY` | If using receipt OCR | |
 | `TELEGRAM_PROXY_URL` | Optional | Useful if Telegram API is slow/blocked |
 | `SMILE_BROWSER_CHANNEL` | **Leave empty** | Container uses bundled Chromium, not Chrome |
@@ -51,7 +63,8 @@ The compose file mounts:
 
 | Mount | Purpose |
 |-------|---------|
-| `bot-data` → `/app/.data` | **Private** — SQLite, Smile.one session + browser profile |
+| `bot-data` → `/app/.data` | **Private** — SQLite, Smile.one **browser profile** |
+| host `/data/smileone` → `/data/smileone` | **Shared** Smile.one `smileone_session.json` (bot writes; web reads) |
 | host `/data/kbz` → `/data/kbz` | **Shared** merchant `kbz_session.json` + claimed txs |
 | host `/data/wave` → `/data/wave` | **Shared** merchant `wave_session.json` |
 | host `/data/payments` → `/data/payments` | **Shared** shop payment ON/OFF catalog (PM writes) |
@@ -59,22 +72,21 @@ The compose file mounts:
 Set:
 
 ```
+SMILE_SESSION_PATH=/data/smileone/smileone_session.json
 KBZ_SESSION_PATH=/data/kbz/kbz_session.json
 WAVE_SESSION_PATH=/data/wave/wave_session.json
 SHOP_PAYMENT_ACCOUNTS_PATH=/data/payments/shop_payment_accounts.json
-# Optional override (default: same folder as session)
-# KBZ_CLAIMED_TX_PATH=/data/kbz/kbz_claimed_txs.sqlite3
 ```
 
-**Do not** put Smile browser profile or SQLite on the shared volume. Only wallet sessions + payment catalog are shared.
+**Do not** put the Smile **browser profile** or SQLite on the shared volume. Only the session JSON is shared with the web shop.
 
 ### Shared KBZ session (Payment Manager is the only writer)
 
 On the host once:
 
 ```bash
-sudo mkdir -p /data/kbz /data/wave /data/payments
-sudo chmod 750 /data/kbz /data/wave /data/payments
+sudo mkdir -p /data/kbz /data/wave /data/payments /data/smileone
+sudo chmod 750 /data/kbz /data/wave /data/payments /data/smileone
 ```
 
 | Role | App |
@@ -107,10 +119,18 @@ Or use Coolify **Terminal** on the bot container and upload files via `docker cp
 
 Minimum files to copy:
 
-- `.data/smileone_session.json`
-- `.data/browser_profile/` (entire directory)
+- `/data/smileone/smileone_session.json` (shared with web; or copy from old `.data/smileone_session.json`)
+- `.data/browser_profile/` (entire directory — stays on bot-data volume)
 - `.data/browser_profile_ready` (flag file)
 - Prefer shared host file `/data/kbz/kbz_session.json` (written by Payment Manager)
+
+Migrate an existing bot session onto the shared path:
+
+```bash
+docker cp <bot_container>:/app/.data/smileone_session.json /data/smileone/smileone_session.json
+```
+
+Then set `SMILE_SESSION_PATH=/data/smileone/smileone_session.json` on **both** bot and web.
 
 ### One-time Smile.one setup (if not seeded)
 

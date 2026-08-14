@@ -7,6 +7,9 @@ services:
         required: false
     volumes:
       - bot-data:/app/.data
+      # Shared Smile.one session (bot writes; web Admin → Supplier reads)
+      # Set SMILE_SESSION_PATH=/data/smileone/smileone_session.json
+      - /data/smileone:/data/smileone
       # Shared merchant sessions (READ-ONLY here).
       # Writer: Donimate Payment Manager only.
       # Set KBZ_SESSION_PATH=/data/kbz/kbz_session.json

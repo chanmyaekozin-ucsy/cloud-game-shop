@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from providers.smileone.config import SESSION_PATH, ensure_data_dir, region
+from providers.smileone.config import ensure_session_parent, region, session_path
 
 
 @dataclass
@@ -19,15 +19,15 @@ class SmileSession:
     cookies: list[dict[str, Any]]
     saved_at: str
     region: str
-    path: Path = SESSION_PATH
+    path: Path = field(default_factory=session_path)
 
     @classmethod
     def load(cls, path: Path | None = None) -> SmileSession | None:
-        session_path = path or SESSION_PATH
-        if not session_path.is_file():
+        file_path = path or session_path()
+        if not file_path.is_file():
             return None
         try:
-            data = json.loads(session_path.read_text(encoding="utf-8"))
+            data = json.loads(file_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             return None
         cookie_header = str(data.get("cookie_header", "")).strip()
@@ -39,7 +39,7 @@ class SmileSession:
             cookies=cookies,
             saved_at=str(data.get("saved_at", "")),
             region=str(data.get("region", region())),
-            path=session_path,
+            path=file_path,
         )
 
     @classmethod
@@ -57,13 +57,13 @@ class SmileSession:
             cookies=cookies,
             saved_at=now,
             region=session_region or region(),
-            path=path or SESSION_PATH,
+            path=path or session_path(),
         )
         session.save()
         return session
 
     def save(self) -> None:
-        ensure_data_dir()
+        ensure_session_parent()
         payload = {
             "cookie_header": self.cookie_header,
             "cookies": self.cookies,

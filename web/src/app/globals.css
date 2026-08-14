@@ -20,7 +20,12 @@
   --font: var(--font-display), "Thu Ngal Tan", sans-serif;
 }
 
-* { box-sizing: border-box; margin: 0; padding: 0; }
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  -webkit-tap-highlight-color: transparent;
+}
 
 html, body { min-height: 100%; }
 
@@ -31,13 +36,19 @@ body {
   font-size: 15px;
   line-height: 1.45;
   -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
 }
 
 button, input, select, textarea { font: inherit; color: inherit; }
 
 a { color: inherit; text-decoration: none; }
 
-button { cursor: pointer; }
+button {
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  outline: none;
+}
 
 .shop {
   width: min(560px, 100%);
@@ -153,9 +164,21 @@ html[data-mini-app="true"] body { background: var(--bg); }
   flex-direction: column;
   align-items: center;
   gap: 8px;
-  background: none;
+  background: transparent;
   border: 0;
+  border-radius: 0;
   animation: rise 0.45s ease both;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  user-select: none;
+}
+
+.game-tile:active,
+.game-tile:focus,
+.game-tile:focus-visible {
+  background: transparent;
+  outline: none;
+  box-shadow: none;
 }
 
 .game-tile:nth-child(1) { animation-delay: 0.02s; }
