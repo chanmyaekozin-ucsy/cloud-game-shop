@@ -124,7 +124,22 @@ export function createBot() {
       return handleLast5Input(ctx, text);
     }
 
-    // Default: show main menu
+    // Handle legacy reply keyboard button clicks gracefully
+    const lower = text.toLowerCase();
+    if (lower.includes("plan") || text.includes("စျေးနှုန်း") || lower.includes("buy") || lower.includes("shop")) {
+      return handleShop(ctx);
+    }
+    if (lower.includes("history") || text.includes("မှတ်တမ်း") || lower.includes("orders")) {
+      return handleHistory(ctx);
+    }
+    if (lower.includes("admin") || lower.includes("help") || text.includes("အကူအညီ")) {
+      return handleHelp(ctx);
+    }
+    if (lower.includes("lang") || text.includes("ဘာသာစကား") || text.includes("မြန်မာ") || lower.includes("english")) {
+      return handleLanguageMenu(ctx);
+    }
+
+    // Default: show main menu & clear keyboard
     return handleStart(ctx);
   });
 
@@ -145,8 +160,17 @@ export async function startBot() {
   console.log("🤖 Starting Cloud Game Shop Telegram Bot...");
   await bot.start({
     drop_pending_updates: true,
-    onStart: (info) => {
+    onStart: async (info) => {
       console.log(`✅ Cloud Game Shop Bot started as @${info.username}`);
+      await bot.api
+        .setMyCommands([
+          { command: "start", description: "Main Menu (ပင်မစာမျက်နှာ)" },
+          { command: "shop", description: "Buy Diamonds & Packages (ဝယ်ယူမည်)" },
+          { command: "history", description: "Order History (မှာယူမှုမှတ်တမ်း)" },
+          { command: "help", description: "Support & Help (အကူအညီ)" },
+          { command: "cancel", description: "Cancel Order (ပယ်ဖျက်မည်)" },
+        ])
+        .catch(() => {});
     },
   });
 }

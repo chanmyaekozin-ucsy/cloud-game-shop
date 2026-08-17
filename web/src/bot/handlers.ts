@@ -51,6 +51,16 @@ export async function handleStart(ctx: Context) {
   session.pendingOrderId = undefined;
   session.depositId = undefined;
 
+  // Clear legacy reply keyboard if present in Telegram client
+  try {
+    const clearing = await ctx.reply("⏳", {
+      reply_markup: { remove_keyboard: true },
+    });
+    await ctx.api.deleteMessage(chatId, clearing.message_id).catch(() => {});
+  } catch {
+    // ignore
+  }
+
   await ctx.reply(t("welcome", session.language), {
     parse_mode: "Markdown",
     reply_markup: mainMenuKeyboard(session.language),
