@@ -49,7 +49,6 @@ export default function AdminLoginPage() {
             value={identifier}
             onChange={(e) => setIdentifier(e.target.value)}
             autoComplete="username"
-            placeholder="admin@cloudgameshop.com"
             required
           />
         </label>
