@@ -1,55 +1,113 @@
 /**
- * WathanPay wallet charge.
- * When WATHANPAY_API_URL is set, debit the player's WathanPay balance.
- * Until then, Cloud Game Shop uses the local demo wallet.
+ * WathanPay Backend Verification (Server-Side)
+ * Official ledger verification for Mini Apps according to SDK_INTEGRATION.md
  */
-export type ChargeInput = {
-  accessToken?: string;
-  amountKs: number;
-  orderId: string;
-  last5: string;
-};
 
-export type ChargeResult = {
+export type VerifyPaymentResult = {
   ok: boolean;
-  txid: string;
-  message: string;
+  verified: boolean;
+  status: "succeeded" | "failed" | "pending" | string;
+  transactionId?: string;
+  shopOrderId?: string;
+  amountKs?: number;
+  paidAt?: string;
+  error?: string;
 };
 
-export async function chargeWathanPay(input: ChargeInput): Promise<ChargeResult | null> {
-  const base = (process.env.WATHANPAY_API_URL || "").replace(/\/$/, "");
-  if (!base || !input.accessToken) return null;
+/**
+ * Verifies a shop order payment with the official WathanPay ledger.
+ *
+ * Endpoint:
+ * GET https://api.wathanpay.com/v1/mini-apps/verify-payment?shopOrderId={shopOrderId}
+ * X-API-Key: {YOUR_MERCHANT_API_KEY}
+ */
+export async function verifyWathanPayPayment(
+  shopOrderId: string,
+  expectedAmountKs?: number
+): Promise<VerifyPaymentResult> {
+  const apiKey = process.env.WATHANPAY_API_KEY;
+  const baseUrl = (process.env.WATHANPAY_API_URL || "https://api.wathanpay.com").replace(/\/$/, "");
 
-  const res = await fetch(`${base}/v1/mini-apps/charge`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${input.accessToken}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      amountKs: input.amountKs,
-      orderId: input.orderId,
-      last5: input.last5,
-      merchant: "cloud-game-shop",
-    }),
-  });
-  const body = (await res.json().catch(() => ({}))) as {
-    ok?: boolean;
-    txid?: string;
-    id?: string;
-    message?: string;
-    error?: { message?: string };
-  };
-  if (!res.ok) {
+  // If no merchant API key is configured (e.g. local development or demo environment)
+  if (!apiKey) {
     return {
-      ok: false,
-      txid: "",
-      message: body.error?.message || body.message || "WathanPay payment failed",
+      ok: true,
+      verified: false,
+      status: "succeeded",
+      shopOrderId,
+      amountKs: expectedAmountKs,
+      transactionId: `WP_DEMO_${Date.now().toString(36)}`,
+      paidAt: new Date().toISOString(),
     };
   }
-  return {
-    ok: body.ok !== false,
-    txid: String(body.txid || body.id || ""),
-    message: body.message || "Paid with WathanPay",
-  };
+
+  try {
+    const url = `${baseUrl}/v1/mini-apps/verify-payment?shopOrderId=${encodeURIComponent(shopOrderId)}`;
+    const res = await fetch(url, {
+      method: "GET",
+      headers: {
+        "X-API-Key": apiKey,
+      },
+    });
+
+    const data = (await res.json().catch(() => ({}))) as {
+      ok?: boolean;
+      verified?: boolean;
+      status?: string;
+      transactionId?: string;
+      shopOrderId?: string;
+      amountKs?: number;
+      paidAt?: string;
+      error?: string;
+      message?: string;
+    };
+
+    if (!res.ok || data.ok === false) {
+      return {
+        ok: false,
+        verified: false,
+        status: data.status || "failed",
+        error: data.error || data.message || `Verification failed with status ${res.status}`,
+      };
+    }
+
+    if (data.status !== "succeeded") {
+      return {
+        ok: false,
+        verified: false,
+        status: data.status || "failed",
+        error: `Order payment status is ${data.status}`,
+      };
+    }
+
+    if (
+      expectedAmountKs !== undefined &&
+      data.amountKs !== undefined &&
+      Number(data.amountKs) !== Number(expectedAmountKs)
+    ) {
+      return {
+        ok: false,
+        verified: false,
+        status: "amount_mismatch",
+        error: `Expected ${expectedAmountKs} Ks, but ledger recorded ${data.amountKs} Ks`,
+      };
+    }
+
+    return {
+      ok: true,
+      verified: true,
+      status: "succeeded",
+      transactionId: data.transactionId,
+      shopOrderId: data.shopOrderId || shopOrderId,
+      amountKs: data.amountKs,
+      paidAt: data.paidAt || new Date().toISOString(),
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      verified: false,
+      status: "network_error",
+      error: err instanceof Error ? err.message : "Failed to reach WathanPay verification server",
+    };
+  }
 }

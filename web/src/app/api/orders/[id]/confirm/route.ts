@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { jsonError, requireUser } from "@/lib/auth";
 import { failedStatus, paidStatus, verifyDepositLast5 } from "@/lib/dominate";
 import { readStore, updateStore } from "@/lib/store";
-import { chargeWathanPay } from "@/lib/wathanpay";
+import { verifyWathanPayPayment } from "@/lib/wathanpay";
 import type { Order, Transaction } from "@/lib/types";
 
 function finish(
@@ -93,12 +93,7 @@ export async function POST(
       return Response.json(result);
     }
 
-    const remote = await chargeWathanPay({
-      accessToken: body.accessToken,
-      amountKs: existing.amountKs,
-      orderId: id,
-      last5,
-    });
+    const verification = await verifyWathanPayPayment(id, existing.amountKs);
 
     const result = await updateStore((store) => {
       const user = store.users.find((u) => u.id === session.sub);
@@ -110,7 +105,7 @@ export async function POST(
         throw Object.assign(new Error("This order is already closed."), { status: 409 });
       }
 
-      const txid = remote?.txid || `WP${last5}${Date.now().toString().slice(-6)}`;
+      const txid = verification.transactionId || `WP${last5}${Date.now().toString().slice(-6)}`;
       const txn: Transaction = {
         id: `txn_${Date.now().toString(36)}`,
         orderId: order.id,
@@ -126,17 +121,18 @@ export async function POST(
 
       const payFailed =
         last5 === "00000" ||
-        remote?.ok === false ||
-        (!remote && user.balanceKs < order.amountKs);
+        verification.ok === false ||
+        (!process.env.WATHANPAY_API_KEY && user.balanceKs < order.amountKs);
+
       if (payFailed) {
         const message =
-          remote?.message ||
+          verification.error ||
           (last5 === "00000" ? "Payment was declined." : "Not enough WathanPay balance.");
         finish(order, txn, { status: "failed", txid, message, txnStatus: "failed" });
         return { order, transaction: txn };
       }
 
-      if (!remote) user.balanceKs -= order.amountKs;
+      if (!process.env.WATHANPAY_API_KEY) user.balanceKs -= order.amountKs;
       if (last5 === "99999") {
         finish(order, txn, {
           status: "failed",

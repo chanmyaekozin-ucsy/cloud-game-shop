@@ -6,6 +6,7 @@ import { ShopShell } from "@/components/ShopShell";
 import { useAuth } from "@/components/Auth";
 import { api } from "@/lib/api";
 import { discountLabel, formatKs, hasDiscount, salePriceKs } from "@/lib/format";
+import { WathanPay } from "@/sdk/wathanpay";
 import type { Game, Package } from "@/lib/types";
 import type { GameAccount } from "./types";
 
@@ -19,17 +20,18 @@ type PayMethod = {
 
 async function payWithWathanPay(input: {
   orderId: string;
-  amountKs: number;
+  amount: number;
   title?: string;
   subtitle?: string;
 }) {
-  const pay = window.WathanPay?.pay;
-  if (!pay) {
-    throw new Error("Open this shop from WathanPay to pay.");
-  }
-  const result = await pay(input);
-  if (!result?.ok) {
-    throw new Error(result?.message || "Payment cancelled.");
+  const result = await WathanPay.pay({
+    orderId: input.orderId,
+    amount: input.amount,
+    title: input.title,
+    subtitle: input.subtitle,
+  });
+  if (!result.ok) {
+    throw new Error(result.error || result.message || "Payment cancelled.");
   }
   return String(result.txid || "");
 }
@@ -165,7 +167,7 @@ export function Checkout({ slug }: { slug: string }) {
       });
       const txid = await payWithWathanPay({
         orderId: id,
-        amountKs: salePriceKs(pkg),
+        amount: salePriceKs(pkg),
         title: game.name,
         subtitle: pkg.displayName,
       });

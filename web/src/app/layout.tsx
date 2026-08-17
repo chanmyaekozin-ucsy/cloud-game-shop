@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
+import Script from "next/script";
 import { AuthProvider } from "@/components/Auth";
 import "./globals.css";
 
@@ -27,6 +28,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
+      <head>
+        <Script src="https://api.wathanpay.com/sdk.js" strategy="beforeInteractive" />
+      </head>
       <body className={`${display.className} ${display.variable}`}>
         <AuthProvider>{children}</AuthProvider>
       </body>
