@@ -4,10 +4,12 @@
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack",
-    "build": "next build",
+    "build:web": "next build",
+    "build:bot": "esbuild src/bot/bot.ts --bundle --platform=node --target=node22 --outfile=dist/bot.js",
+    "build": "next build && npm run build:bot",
     "start": "next start",
     "lint": "next lint",
-    "bot": "npx tsx src/bot/bot.ts"
+    "bot": "node dist/bot.js"
   },
   "dependencies": {
     "grammy": "^1.45.1",
@@ -21,6 +23,7 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "esbuild": "^0.28.2",
     "eslint": "^9",
     "eslint-config-next": "^15.5.9",
     "tsx": "^4.23.12",

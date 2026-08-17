@@ -21,15 +21,13 @@ import {
 import { cancelKeyboard } from "./keyboards";
 import { t } from "./i18n";
 
-loadShopEnv();
-
-const token = (process.env.BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN || "").trim();
-
-if (!token) {
-  console.warn("⚠️ BOT_TOKEN is not set in environment. Telegram bot cannot start.");
+export function getBotToken() {
+  loadShopEnv();
+  return (process.env.BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN || "").trim();
 }
 
 export function createBot() {
+  const token = getBotToken();
   if (!token) {
     throw new Error("BOT_TOKEN is required to start the Telegram bot.");
   }
@@ -129,13 +127,15 @@ export function createBot() {
 }
 
 export async function startBot() {
+  const token = getBotToken();
   if (!token) {
-    console.log("BOT_TOKEN not provided, skipping Telegram bot start.");
+    console.log("ℹ️ BOT_TOKEN not provided, skipping Telegram bot start.");
     return;
   }
   const bot = createBot();
   console.log("🤖 Starting Cloud Game Shop Telegram Bot...");
   await bot.start({
+    drop_pending_updates: true,
     onStart: (info) => {
       console.log(`✅ Cloud Game Shop Bot started as @${info.username}`);
     },
@@ -143,7 +143,12 @@ export async function startBot() {
 }
 
 // Auto-run if executed directly
-if (process.argv[1]?.includes("bot.ts") || process.argv[1]?.includes("src/bot/bot.ts")) {
+if (
+  process.argv[1]?.includes("bot.ts") ||
+  process.argv[1]?.includes("src/bot/bot.ts") ||
+  process.argv[1]?.includes("dist/bot.js") ||
+  process.argv[1]?.includes("bot.js")
+) {
   startBot().catch((err) => {
     console.error("Failed to start bot:", err);
     process.exit(1);
