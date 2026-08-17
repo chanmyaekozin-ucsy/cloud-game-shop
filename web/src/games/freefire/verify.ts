@@ -19,6 +19,6 @@ export async function verify(input: {
     zoneId: input.zoneId.trim(),
     nickname: "FF Player",
     country: "Myanmar",
-    region: "SEA",
+    region: "Myanmar",
   };
 }

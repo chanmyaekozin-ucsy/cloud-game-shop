@@ -25,30 +25,62 @@ export function languageKeyboard() {
 export function gamesKeyboard(games: Game[], lang: BotLanguage = "my") {
   const kb = new InlineKeyboard();
   for (const game of games) {
-    kb.text(`${game.icon || "🎮"} ${game.name}`, `game:${game.id}`).row();
+    kb.text(`🎮 ${game.name}`, `game:${game.id}`).row();
   }
   kb.text(lang === "my" ? "🔙 ပင်မစာမျက်နှာ" : "🔙 Main Menu", "cmd:start");
   return kb;
 }
 
-export function packagesKeyboard(packages: Package[], lang: BotLanguage = "my") {
+export const PACKAGES_PER_PAGE = 6;
+
+export function packagesKeyboard(
+  packages: Package[],
+  pageOrLang: number | BotLanguage = 0,
+  lang: BotLanguage = "my",
+  gameId?: string,
+) {
+  let page = 0;
+  let currentLang = lang;
+  if (typeof pageOrLang === "string") {
+    currentLang = pageOrLang as BotLanguage;
+    page = 0;
+  } else {
+    page = pageOrLang;
+  }
+
+  const effectiveGameId = gameId || packages[0]?.gameId || "";
+  const totalPages = Math.max(1, Math.ceil(packages.length / PACKAGES_PER_PAGE));
+  const currentPage = Math.max(0, Math.min(page, totalPages - 1));
+  const start = currentPage * PACKAGES_PER_PAGE;
+  const pageItems = packages.slice(start, start + PACKAGES_PER_PAGE);
+
   const kb = new InlineKeyboard();
-  for (let i = 0; i < packages.length; i += 2) {
-    const p1 = packages[i];
-    const p2 = packages[i + 1];
-    if (p1) {
-      const price1 = formatKs(salePriceKs(p1));
-      const badge1 = p1.offPercent > 0 ? ` [${p1.offPercent}% OFF]` : "";
-      kb.text(`${p1.displayName} - ${price1}${badge1}`, `pkg:${p1.id}`);
+  // 1 column: each package on its own line
+  for (const p of pageItems) {
+    const price = formatKs(salePriceKs(p));
+    const badge = p.offPercent > 0 ? ` [${p.offPercent}% OFF]` : "";
+    kb.text(`${p.displayName} - ${price}${badge}`, `pkg:${p.id}`).row();
+  }
+
+  // Pagination navigation row if more than 1 page
+  if (totalPages > 1) {
+    if (currentPage > 0) {
+      kb.text("⬅️ Prev", `pkgpage:${effectiveGameId}:${currentPage - 1}`);
+    } else {
+      kb.text("▪️", "noop");
     }
-    if (p2) {
-      const price2 = formatKs(salePriceKs(p2));
-      const badge2 = p2.offPercent > 0 ? ` [${p2.offPercent}% OFF]` : "";
-      kb.text(`${p2.displayName} - ${price2}${badge2}`, `pkg:${p2.id}`);
+
+    kb.text(`${currentPage + 1} / ${totalPages}`, "noop");
+
+    if (currentPage < totalPages - 1) {
+      kb.text("Next ➡️", `pkgpage:${effectiveGameId}:${currentPage + 1}`);
+    } else {
+      kb.text("▪️", "noop");
     }
     kb.row();
   }
-  kb.text(lang === "my" ? "🔙 ဂိမ်းရွေးချယ်မှုသို့" : "🔙 Back to Games", "cmd:shop");
+
+  kb.text(currentLang === "my" ? "🔙 ဂိမ်းရွေးချယ်မှုသို့" : "🔙 Back to Games", "cmd:shop");
   return kb;
 }
 

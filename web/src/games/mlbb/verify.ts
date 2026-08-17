@@ -56,7 +56,7 @@ export async function verify(input: {
       zoneId: zone,
       nickname: "Demo Player",
       country: "Myanmar",
-      region: "SEA",
+      region: "Myanmar",
     };
   }
 

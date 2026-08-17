@@ -28,16 +28,16 @@ export const TEXTS = {
     my: "⏳ Game အကောင့်ကို စစ်ဆေးနေပါသည်...",
   },
   account_verified: {
-    en: "✅ *Account Verified*\n\n👤 Nickname: *{nickname}*\n🆔 Game ID: `{gameUserId}` ({zoneId})\n🌍 Region: {region}\n\n💎 Package: *{packageName}*\n💰 Total: *{amountKs} Ks*\n\nProceed to payment?",
-    my: "✅ *အကောင့်စစ်ဆေးမှု အောင်မြင်ပါသည်*\n\n👤 နာမည်: *{nickname}*\n🆔 Game ID: `{gameUserId}` ({zoneId})\n🌍 Region: {region}\n\n💎 Package: *{packageName}*\n💰 ကျသင့်ငွေ: *{amountKs} Ks*\n\nငွေပေးချေမှုသို့ ဆက်သွားမလား?",
+    en: "✅ *Account Verified*\n\n👤 Nickname: *{nickname}*\n🆔 Game ID: `{gameUserId}` ({zoneId})\n🌍 Region: {region}\n\n💎 Package: *{packageName}*\n💰 Total: *{amountKs}*\n\nProceed to payment?",
+    my: "✅ *အကောင့်စစ်ဆေးမှု အောင်မြင်ပါသည်*\n\n👤 နာမည်: *{nickname}*\n🆔 Game ID: `{gameUserId}` ({zoneId})\n🌍 Region: {region}\n\n💎 Package: *{packageName}*\n💰 ကျသင့်ငွေ: *{amountKs}*\n\nငွေပေးချေမှုသို့ ဆက်သွားမလား?",
   },
   choose_payment: {
     en: "💳 *Choose Payment Method:*",
     my: "💳 *ငွေပေးချေမည့် နည်းလမ်းကို ရွေးချယ်ပါ:*",
   },
   payment_instructions: {
-    en: "💳 *Payment Instructions ({method})*\n\n💰 Amount: *{amountKs} Ks*\n👤 Account Name: *{accountName}*\n📱 Account / Number: `{accountNumber}`\n\n📌 *Steps:*\n1. Transfer the exact amount (*{amountKs} Ks*).\n2. Send the **last 5 digits** of the Transaction ID here.\n\n_Order ID: {orderId}_",
-    my: "💳 *ငွေပေးချေရန် လမ်းညွှန်ချက် ({method})*\n\n💰 ကျသင့်ငွေ: *{amountKs} Ks*\n👤 လက်ခံသူ: *{accountName}*\n📱 ဖုန်းနံပါတ်/အကောင့်: `{accountNumber}`\n\n📌 *လုပ်ဆောင်ရန်:*\n1. ကျသင့်ငွေ *{amountKs} Ks* တိကျစွာ လွှဲပေးပါ။\n2. လွှဲပြီးပါက လုပ်ငန်းစဉ်နံပါတ် (TxID) ၏ **နောက်ဆုံး ၅ လုံး** ကို ဤနေရာသို့ ပို့ပေးပါ။\n\n_Order ID: {orderId}_",
+    en: "💳 *Payment Instructions ({method})*\n\n💰 Amount: *{amountKs}*\n👤 Account Name: *{accountName}*\n📱 Account / Number: `{accountNumber}`\n\n📌 *Steps:*\n1. Transfer the exact amount (*{amountKs}*).\n2. Send the **last 5 digits** of the Transaction ID here.\n\n🆔 Order ID: `{orderId}`",
+    my: "💳 *ငွေပေးချေရန် လမ်းညွှန်ချက် ({method})*\n\n💰 ကျသင့်ငွေ: *{amountKs}*\n👤 လက်ခံသူ: *{accountName}*\n📱 ဖုန်းနံပါတ်/အကောင့်: `{accountNumber}`\n\n📌 *လုပ်ဆောင်ရန်:*\n1. ကျသင့်ငွေ *{amountKs}* တိကျစွာ လွှဲပေးပါ။\n2. လွှဲပြီးပါက လုပ်ငန်းစဉ်နံပါတ် (TxID) ၏ **နောက်ဆုံး ၅ လုံး** ကို ဤနေရာသို့ ပို့ပေးပါ။\n\n🆔 Order ID: `{orderId}`",
   },
   checking_payment: {
     en: "⏳ Verifying transaction with payment gateway...",
@@ -68,8 +68,8 @@ export const TEXTS = {
     my: "📋 လူကြီးမင်းတွင် မှာယူမှု မှတ်တမ်း မရှိသေးပါ။",
   },
   history_item: {
-    en: "• `{orderId}` | {game} - {package} | {amount} Ks | *{status}* ({date})",
-    my: "• `{orderId}` | {game} - {package} | {amount} Ks | *{status}* ({date})",
+    en: "• `{orderId}` | {game} - {package} | {amount} | *{status}* ({date})",
+    my: "• `{orderId}` | {game} - {package} | {amount} | *{status}* ({date})",
   },
   language_set: {
     en: "Language set to English 🇬🇧",

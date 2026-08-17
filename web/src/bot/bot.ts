@@ -59,9 +59,18 @@ export function createBot() {
       return handleSetLanguage(ctx, lang);
     }
 
+    if (data === "noop") return;
+
     if (data.startsWith("game:")) {
       const gameId = data.replace("game:", "");
       return handleGameSelect(ctx, gameId);
+    }
+
+    if (data.startsWith("pkgpage:")) {
+      const parts = data.split(":");
+      const gameId = parts[1] || "";
+      const page = parseInt(parts[2] || "0", 10);
+      return handleGameSelect(ctx, gameId, page);
     }
 
     if (data.startsWith("pkg:")) {

@@ -96,7 +96,7 @@ export async function handleShop(ctx: Context) {
   });
 }
 
-export async function handleGameSelect(ctx: Context, gameId: string) {
+export async function handleGameSelect(ctx: Context, gameId: string, page: number = 0) {
   const session = getSession(ctx.from!.id, ctx.chat!.id);
   const store = await readStore();
   const game = store.games.find((g) => g.id === gameId);
@@ -121,9 +121,24 @@ export async function handleGameSelect(ctx: Context, gameId: string) {
   }
 
   setStep(session, "select_package");
-  await ctx.reply(t("choose_package", session.language, { game: game.name }), {
+  const text = t("choose_package", session.language, { game: game.name });
+  const replyMarkup = packagesKeyboard(packages, page, session.language, gameId);
+
+  if (ctx.callbackQuery) {
+    try {
+      await ctx.editMessageText(text, {
+        parse_mode: "Markdown",
+        reply_markup: replyMarkup,
+      });
+      return;
+    } catch {
+      // Continue to reply if edit fails
+    }
+  }
+
+  await ctx.reply(text, {
     parse_mode: "Markdown",
-    reply_markup: packagesKeyboard(packages, session.language),
+    reply_markup: replyMarkup,
   });
 }
 
@@ -212,14 +227,14 @@ export async function performAccountVerification(
   await ctx.reply(t("checking_account", session.language));
 
   let nickname = "Player";
-  let region = "SEA";
+  let region = "Myanmar";
 
   const gameModule = getGameById(game.id);
   if (gameModule?.verify) {
     try {
       const verified = await gameModule.verify({ gameUserId, zoneId });
       nickname = verified.nickname;
-      region = verified.region || "SEA";
+      region = verified.region || "Myanmar";
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Account not found.";
       await ctx.reply(`❌ ${msg}\nPlease verify your Game ID and Server and try again.`, {
@@ -329,7 +344,7 @@ export async function handleCreateOrderAndDeposit(ctx: Context, methodId: string
     gameUserId: session.gameUserId,
     zoneId: session.zoneId || "",
     nickname: session.nickname || "Player",
-    region: session.region || "SEA",
+    region: session.region || "Myanmar",
     status: "awaiting_payment",
     paymentMethod: methodName,
     depositId,
@@ -350,19 +365,25 @@ export async function handleCreateOrderAndDeposit(ctx: Context, methodId: string
   session.payMethod = methodName;
   setStep(session, "awaiting_last5");
 
-  await ctx.reply(
-    t("payment_instructions", session.language, {
-      method: methodName,
-      amountKs: formatKs(session.amountKs),
-      accountName,
-      accountNumber,
-      orderId,
-    }),
-    {
+  const replyText = t("payment_instructions", session.language, {
+    method: methodName,
+    amountKs: formatKs(session.amountKs),
+    accountName,
+    accountNumber,
+    orderId,
+  });
+
+  try {
+    await ctx.reply(replyText, {
       parse_mode: "Markdown",
       reply_markup: cancelKeyboard(session.language),
-    },
-  );
+    });
+  } catch (err) {
+    console.error("Failed to send markdown payment instructions, falling back to plain text:", err);
+    await ctx.reply(replyText, {
+      reply_markup: cancelKeyboard(session.language),
+    });
+  }
 }
 
 export async function handleLast5Input(ctx: Context, last5Raw: string) {
