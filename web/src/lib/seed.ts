@@ -6,10 +6,10 @@ import type { Store, User } from "./types";
 export function adminCredentials() {
   loadShopEnv();
   const email = (process.env.ADMIN_EMAIL || "admin@cloudgameshop.com").trim().toLowerCase();
-  const pin = (process.env.ADMIN_PIN || "123456").trim();
+  const password = (process.env.ADMIN_PASSWORD || process.env.ADMIN_PIN || "admin123456").trim();
   return {
     email: email || "admin@cloudgameshop.com",
-    pin: pin.length === 6 ? pin : "123456",
+    password: password || "admin123456",
   };
 }
 
@@ -32,7 +32,7 @@ export function seedStore(): Store {
         phone: "09970000001",
         email: admin.email,
         role: "admin",
-        pinHash: hashPin(admin.pin),
+        pinHash: hashPin(admin.password),
         balanceKs: 0,
       },
     ],
@@ -43,10 +43,10 @@ export function seedStore(): Store {
   };
 }
 
-/** Keep the seeded admin account in sync with ADMIN_EMAIL / ADMIN_PIN. */
+/** Keep the seeded admin account in sync with ADMIN_EMAIL / ADMIN_PASSWORD. */
 export function syncAdminFromEnv(store: Store) {
-  const { email, pin } = adminCredentials();
-  const pinHash = hashPin(pin);
+  const { email, password } = adminCredentials();
+  const pinHash = hashPin(password);
   const admin = store.users.find((u) => u.id === "user_admin" || u.role === "admin");
   if (!admin) {
     const created: User = {

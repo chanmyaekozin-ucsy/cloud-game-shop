@@ -210,3 +210,122 @@ export async function getSmileSupplierStatus(): Promise<SmileSupplierStatus> {
     };
   }
 }
+
+function extractCsrf(html: string): string | null {
+  const match = html.match(/<meta[^>]+name=["']csrf-token["'][^>]+content=["']([^"']+)["']/i) ||
+    html.match(/name=["']_csrf["'][^>]+value=["']([^"']+)["']/i) ||
+    html.match(/_csrf\s*=\s*["']([^"']+)["']/i);
+  return match?.[1] || null;
+}
+
+export async function paySmileoneMlbb(input: {
+  gameUserId: string;
+  zoneId: string;
+  smileGoodsId: string;
+}): Promise<{ ok: boolean; message: string }> {
+  const loaded = loadSessionFile();
+  if (!loaded || !loaded.data.cookie_header) {
+    return { ok: false, message: "No Smile.one session cookie configured." };
+  }
+  const cookie = loaded.data.cookie_header;
+  const reg = region();
+  const merchantUrl = `https://www.smile.one/${reg}/merchant`;
+  const referer = `https://www.smile.one/${reg}/merchant`;
+
+  try {
+    const page = await fetchOrderPage(cookie, merchantUrl);
+    if (looksLikeLoginPage(page.html, page.finalUrl)) {
+      return { ok: false, message: "Smile.one session expired." };
+    }
+    const csrf = extractCsrf(page.html);
+    if (!csrf) {
+      return { ok: false, message: "Could not parse CSRF token from Smile.one." };
+    }
+
+    const basePayload = {
+      user_id: input.gameUserId.trim(),
+      zone_id: input.zoneId.trim(),
+      pid: input.smileGoodsId.trim(),
+      pay_methond: "smilecoin",
+      channel_method: "smilecoin",
+    };
+
+    // 1. checkrole
+    const checkRes = await fetch(`https://www.smile.one/${reg}/merchant/checkrole`, {
+      method: "POST",
+      headers: {
+        "User-Agent": USER_AGENT,
+        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+        Cookie: cookie,
+        Referer: referer,
+      },
+      body: new URLSearchParams({ ...basePayload, checkrole: "1" }).toString(),
+    });
+    const checkJson = (await checkRes.json().catch(() => ({}))) as { code?: number; info?: string };
+    if (Number(checkJson.code) !== 200) {
+      return { ok: false, message: checkJson.info || "MLBB account validation failed on Smile.one." };
+    }
+
+    // 2. query -> flowid
+    const queryRes = await fetch(`https://www.smile.one/${reg}/merchant/query`, {
+      method: "POST",
+      headers: {
+        "User-Agent": USER_AGENT,
+        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+        Cookie: cookie,
+        Referer: referer,
+      },
+      body: new URLSearchParams({ ...basePayload, checkrole: "" }).toString(),
+    });
+    const queryJson = (await queryRes.json().catch(() => ({}))) as { code?: number; flowid?: string; info?: string };
+    const flowid = queryJson.flowid || "";
+    if (Number(queryJson.code) !== 200 || !flowid) {
+      return { ok: false, message: queryJson.info || "Smile.one did not issue a flow ID." };
+    }
+
+    // 3. customer check
+    await fetch(`https://www.smile.one/${reg}/merchant/customer`, {
+      method: "POST",
+      headers: {
+        "User-Agent": USER_AGENT,
+        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+        Cookie: cookie,
+        Referer: referer,
+      },
+      body: new URLSearchParams({ check: "check" }).toString(),
+    }).catch(() => undefined);
+
+    // 4. pay
+    const payRes = await fetch(`https://www.smile.one/${reg}/merchant/pay`, {
+      method: "POST",
+      headers: {
+        "User-Agent": USER_AGENT,
+        "Content-Type": "application/x-www-form-urlencoded",
+        Cookie: cookie,
+        Referer: merchantUrl,
+      },
+      body: new URLSearchParams({
+        user_id: input.gameUserId.trim(),
+        zone_id: input.zoneId.trim(),
+        pay_methond: "smilecoin",
+        product_id: input.smileGoodsId.trim(),
+        channel_method: "smilecoin",
+        flowid,
+        email: "",
+        coupon_id: "",
+        _csrf: csrf,
+      }).toString(),
+    });
+
+    const payHtml = await payRes.text();
+    const finalUrl = payRes.url;
+    if (finalUrl.includes("/success") || payHtml.includes("Payment Successful") || payHtml.includes("Success")) {
+      return { ok: true, message: `Smile.one Top-up Succeeded (goods: ${input.smileGoodsId})` };
+    }
+
+    return { ok: false, message: "Smile.one payment did not return success page." };
+  } catch (err) {
+    return { ok: false, message: err instanceof Error ? err.message : "Top-up request failed." };
+  }
+}
+

@@ -10,7 +10,7 @@ function LoginForm() {
   const search = useSearchParams();
   const { refresh } = useAuth();
   const [identifier, setIdentifier] = useState("");
-  const [pin, setPin] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -21,7 +21,7 @@ function LoginForm() {
     try {
       await api("/api/auth/login", {
         method: "POST",
-        body: JSON.stringify({ identifier, pin }),
+        body: JSON.stringify({ identifier, password }),
       });
       await refresh();
       const next = search.get("next");
@@ -38,7 +38,7 @@ function LoginForm() {
       <form className="auth-card" onSubmit={onSubmit}>
         <div className="mark">CG</div>
         <h1>Cloud Game Shop</h1>
-        <p>Sign in with phone or email and your 6-digit PIN.</p>
+        <p>Sign in with phone or email and your password.</p>
         {error ? <p className="err">{error}</p> : null}
         <label className="field">
           Phone or email
@@ -46,16 +46,19 @@ function LoginForm() {
             value={identifier}
             onChange={(e) => setIdentifier(e.target.value)}
             autoComplete="username"
+            placeholder="09... or user@domain.com"
+            required
           />
         </label>
         <label className="field">
-          PIN
+          Password
           <input
-            value={pin}
-            onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 6))}
-            inputMode="numeric"
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
             autoComplete="current-password"
-            placeholder="••••••"
+            placeholder="••••••••"
+            required
           />
         </label>
         <button className="btn" disabled={busy} type="submit">

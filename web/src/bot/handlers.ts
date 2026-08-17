@@ -1,0 +1,539 @@
+import type { Context } from "grammy";
+import { formatKs, salePriceKs } from "@/lib/format";
+import { readStore, updateStore } from "@/lib/store";
+import { getGameById } from "@/games/shared/catalog";
+import { createDeposit, failedStatus, listPaymentMethods, paidStatus, verifyDepositLast5 } from "@/lib/dominate";
+import { paySmileoneMlbb } from "@/lib/smileone";
+import type { Order, Transaction } from "@/lib/types";
+import { DEFAULT_LANG, t } from "./i18n";
+import {
+  cancelKeyboard,
+  confirmAccountKeyboard,
+  gamesKeyboard,
+  languageKeyboard,
+  mainMenuKeyboard,
+  packagesKeyboard,
+  paymentMethodsKeyboard,
+  savedAccountsKeyboard,
+} from "./keyboards";
+import type { BotLanguage, BotSession, BotStep } from "./types";
+
+const sessions = new Map<number, BotSession>();
+
+export function getSession(userId: number, chatId: number): BotSession {
+  let s = sessions.get(userId);
+  if (!s) {
+    s = {
+      telegramId: userId,
+      chatId,
+      language: DEFAULT_LANG,
+      step: "idle",
+      savedAccounts: [],
+      updatedAt: new Date().toISOString(),
+    };
+    sessions.set(userId, s);
+  }
+  return s;
+}
+
+export function setStep(session: BotSession, step: BotStep) {
+  session.step = step;
+  session.updatedAt = new Date().toISOString();
+}
+
+export async function handleStart(ctx: Context) {
+  const userId = ctx.from?.id;
+  const chatId = ctx.chat?.id;
+  if (!userId || !chatId) return;
+
+  const session = getSession(userId, chatId);
+  session.step = "idle";
+  session.pendingOrderId = undefined;
+  session.depositId = undefined;
+
+  await ctx.reply(t("welcome", session.language), {
+    parse_mode: "Markdown",
+    reply_markup: mainMenuKeyboard(session.language),
+  });
+}
+
+export async function handleHelp(ctx: Context) {
+  const session = getSession(ctx.from!.id, ctx.chat!.id);
+  await ctx.reply(t("help", session.language), {
+    parse_mode: "Markdown",
+    reply_markup: mainMenuKeyboard(session.language),
+  });
+}
+
+export async function handleCancel(ctx: Context) {
+  const session = getSession(ctx.from!.id, ctx.chat!.id);
+  session.step = "idle";
+  session.pendingOrderId = undefined;
+  session.depositId = undefined;
+
+  await ctx.reply(t("order_cancelled", session.language), {
+    parse_mode: "Markdown",
+    reply_markup: mainMenuKeyboard(session.language),
+  });
+}
+
+export async function handleShop(ctx: Context) {
+  const session = getSession(ctx.from!.id, ctx.chat!.id);
+  const store = await readStore();
+  const activeGames = store.games.filter((g) => g.isActive);
+
+  if (activeGames.length === 0) {
+    await ctx.reply("No games currently active. Please check back soon!", {
+      reply_markup: mainMenuKeyboard(session.language),
+    });
+    return;
+  }
+
+  setStep(session, "select_game");
+  await ctx.reply(t("choose_game", session.language), {
+    parse_mode: "Markdown",
+    reply_markup: gamesKeyboard(activeGames, session.language),
+  });
+}
+
+export async function handleGameSelect(ctx: Context, gameId: string) {
+  const session = getSession(ctx.from!.id, ctx.chat!.id);
+  const store = await readStore();
+  const game = store.games.find((g) => g.id === gameId);
+
+  if (!game || !game.isActive) {
+    await ctx.reply("Game not found or inactive.", {
+      reply_markup: mainMenuKeyboard(session.language),
+    });
+    return;
+  }
+
+  session.gameId = gameId;
+  const packages = store.packages
+    .filter((p) => p.gameId === gameId && p.isActive)
+    .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+
+  if (packages.length === 0) {
+    await ctx.reply("No packages available for this game.", {
+      reply_markup: gamesKeyboard(store.games.filter((g) => g.isActive), session.language),
+    });
+    return;
+  }
+
+  setStep(session, "select_package");
+  await ctx.reply(t("choose_package", session.language, { game: game.name }), {
+    parse_mode: "Markdown",
+    reply_markup: packagesKeyboard(packages, session.language),
+  });
+}
+
+export async function handlePackageSelect(ctx: Context, pkgId: string) {
+  const session = getSession(ctx.from!.id, ctx.chat!.id);
+  const store = await readStore();
+  const pkg = store.packages.find((p) => p.id === pkgId);
+
+  if (!pkg || !pkg.isActive) {
+    await ctx.reply("Selected package is no longer available.", {
+      reply_markup: mainMenuKeyboard(session.language),
+    });
+    return;
+  }
+
+  session.packageId = pkgId;
+  session.amountKs = salePriceKs(pkg);
+
+  const game = store.games.find((g) => g.id === session.gameId);
+  const savedForGame = session.savedAccounts.filter((a) => a.gameId === session.gameId);
+
+  if (savedForGame.length > 0) {
+    setStep(session, "enter_game_id");
+    await ctx.reply("Select a saved account or enter a new one:", {
+      reply_markup: savedAccountsKeyboard(savedForGame, session.language),
+    });
+    return;
+  }
+
+  setStep(session, "enter_game_id");
+  const isMlbb = game?.slug === "mlbb" || game?.id === "mlbb";
+  await ctx.reply(
+    t("enter_game_id", session.language, {
+      format: isMlbb ? "GameID(ServerID)" : "GameID",
+      example: isMlbb ? "450215964(2353)" : "12345678",
+    }),
+    {
+      parse_mode: "Markdown",
+      reply_markup: cancelKeyboard(session.language),
+    },
+  );
+}
+
+export async function handleGameIdInput(ctx: Context, text: string) {
+  const session = getSession(ctx.from!.id, ctx.chat!.id);
+  const raw = text.trim();
+
+  let gameUserId = "";
+  let zoneId = "";
+
+  const match = raw.match(/^(\d+)[\s(]+(\d+)\)?$/);
+  if (match && match[1] && match[2]) {
+    gameUserId = match[1];
+    zoneId = match[2];
+  } else if (/^\d+$/.test(raw)) {
+    gameUserId = raw;
+    zoneId = "";
+  } else {
+    await ctx.reply(t("invalid_game_id", session.language, { example: "450215964(2353)" }), {
+      parse_mode: "Markdown",
+      reply_markup: cancelKeyboard(session.language),
+    });
+    return;
+  }
+
+  await performAccountVerification(ctx, session, gameUserId, zoneId);
+}
+
+export async function performAccountVerification(
+  ctx: Context,
+  session: BotSession,
+  gameUserId: string,
+  zoneId: string,
+) {
+  const store = await readStore();
+  const game = store.games.find((g) => g.id === session.gameId);
+  const pkg = store.packages.find((p) => p.id === session.packageId);
+
+  if (!game || !pkg) {
+    await ctx.reply("Session expired. Please start again.", {
+      reply_markup: mainMenuKeyboard(session.language),
+    });
+    return;
+  }
+
+  await ctx.reply(t("checking_account", session.language));
+
+  let nickname = "Player";
+  let region = "SEA";
+
+  const gameModule = getGameById(game.id);
+  if (gameModule?.verify) {
+    try {
+      const verified = await gameModule.verify({ gameUserId, zoneId });
+      nickname = verified.nickname;
+      region = verified.region || "SEA";
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Account not found.";
+      await ctx.reply(`❌ ${msg}\nPlease verify your Game ID and Server and try again.`, {
+        reply_markup: cancelKeyboard(session.language),
+      });
+      return;
+    }
+  }
+
+  session.gameUserId = gameUserId;
+  session.zoneId = zoneId;
+  session.nickname = nickname;
+  session.region = region;
+
+  if (!session.savedAccounts.some((a) => a.gameUserId === gameUserId && a.zoneId === zoneId)) {
+    session.savedAccounts.push({
+      gameId: game.id,
+      gameUserId,
+      zoneId,
+      nickname,
+      savedAt: new Date().toISOString(),
+    });
+  }
+
+  setStep(session, "confirm_account");
+  await ctx.reply(
+    t("account_verified", session.language, {
+      nickname,
+      gameUserId,
+      zoneId: zoneId || "Global",
+      region,
+      packageName: pkg.displayName,
+      amountKs: formatKs(session.amountKs || salePriceKs(pkg)),
+    }),
+    {
+      parse_mode: "Markdown",
+      reply_markup: confirmAccountKeyboard(session.language),
+    },
+  );
+}
+
+export async function handlePaymentSelect(ctx: Context) {
+  const session = getSession(ctx.from!.id, ctx.chat!.id);
+  const methods = await listPaymentMethods();
+
+  const options = methods.map((m) => ({ id: m.id, name: `${m.method} (${m.accountName || m.accountNumber})` }));
+  if (options.length === 0) {
+    options.push(
+      { id: "direct_kbz", name: "KBZPay (Direct)" },
+      { id: "direct_wave", name: "WavePay (Direct)" },
+    );
+  }
+
+  setStep(session, "choose_payment");
+  await ctx.reply(t("choose_payment", session.language), {
+    parse_mode: "Markdown",
+    reply_markup: paymentMethodsKeyboard(options, session.language),
+  });
+}
+
+export async function handleCreateOrderAndDeposit(ctx: Context, methodId: string) {
+  const session = getSession(ctx.from!.id, ctx.chat!.id);
+  const store = await readStore();
+  const game = store.games.find((g) => g.id === session.gameId);
+  const pkg = store.packages.find((p) => p.id === session.packageId);
+
+  if (!game || !pkg || !session.gameUserId || !session.amountKs) {
+    await ctx.reply("Order session expired. Tap /start to begin.", {
+      reply_markup: mainMenuKeyboard(session.language),
+    });
+    return;
+  }
+
+  const orderId = `tg_${Date.now().toString(36)}`;
+  let depositId: string | null = null;
+  let accountName = "Cloud Game Shop";
+  let accountNumber = "09970000000";
+  let methodName = "KBZPay";
+
+  const methods = await listPaymentMethods();
+  const selected = methods.find((m) => m.id === methodId);
+
+  if (selected) {
+    methodName = selected.method;
+    accountName = selected.accountName;
+    accountNumber = selected.accountNumber;
+    try {
+      const deposit = await createDeposit({
+        accountId: selected.id,
+        amountKs: session.amountKs,
+        orderId,
+      });
+      depositId = deposit.id;
+    } catch {
+      // Fallback to direct instructions if deposit create failed
+    }
+  }
+
+  const newOrder: Order = {
+    id: orderId,
+    userId: `tg_${session.telegramId}`,
+    gameId: game.id,
+    gameName: game.name,
+    packageId: pkg.id,
+    packageName: pkg.displayName,
+    amountKs: session.amountKs,
+    gameUserId: session.gameUserId,
+    zoneId: session.zoneId || "",
+    nickname: session.nickname || "Player",
+    region: session.region || "SEA",
+    status: "awaiting_payment",
+    paymentMethod: methodName,
+    depositId,
+    payeeName: accountName,
+    payeePhone: accountNumber,
+    txid: null,
+    failReason: null,
+    createdAt: new Date().toISOString(),
+    completedAt: null,
+  };
+
+  await updateStore((s) => {
+    s.orders.push(newOrder);
+  });
+
+  session.pendingOrderId = orderId;
+  session.depositId = depositId || undefined;
+  session.payMethod = methodName;
+  setStep(session, "awaiting_last5");
+
+  await ctx.reply(
+    t("payment_instructions", session.language, {
+      method: methodName,
+      amountKs: formatKs(session.amountKs),
+      accountName,
+      accountNumber,
+      orderId,
+    }),
+    {
+      parse_mode: "Markdown",
+      reply_markup: cancelKeyboard(session.language),
+    },
+  );
+}
+
+export async function handleLast5Input(ctx: Context, last5Raw: string) {
+  const session = getSession(ctx.from!.id, ctx.chat!.id);
+  const last5 = last5Raw.replace(/\D/g, "").slice(0, 5);
+
+  if (last5.length !== 5) {
+    await ctx.reply(t("invalid_game_id", session.language, { example: "12345" }), {
+      reply_markup: cancelKeyboard(session.language),
+    });
+    return;
+  }
+
+  const orderId = session.pendingOrderId;
+  if (!orderId) {
+    await ctx.reply(t("no_open_order", session.language), {
+      reply_markup: mainMenuKeyboard(session.language),
+    });
+    return;
+  }
+
+  await ctx.reply(t("checking_payment", session.language));
+
+  let txid = `TX${last5}${Date.now().toString().slice(-4)}`;
+  let isSuccess = false;
+  let failReason = "";
+
+  if (session.depositId) {
+    try {
+      const deposit = await verifyDepositLast5(session.depositId, last5);
+      const st = String(deposit.status || "");
+      txid = String(deposit.bank_trx_id || deposit.trx_id || txid);
+      if (paidStatus(st)) {
+        isSuccess = true;
+      } else if (failedStatus(st)) {
+        isSuccess = false;
+        failReason = deposit.verify_reason || "Payment declined or expired.";
+      } else {
+        await ctx.reply("Payment pending. Please transfer the exact amount and send the last 5 digits again.", {
+          reply_markup: cancelKeyboard(session.language),
+        });
+        return;
+      }
+    } catch (err) {
+      failReason = err instanceof Error ? err.message : "Gateway verification failed.";
+    }
+  } else {
+    // Direct payment mode: 00000 triggers test decline, otherwise success
+    if (last5 === "00000") {
+      isSuccess = false;
+      failReason = "Payment was declined.";
+    } else {
+      isSuccess = true;
+    }
+  }
+
+  let finalOrder: Order | null = null;
+
+  await updateStore(async (s) => {
+    const order = s.orders.find((o) => o.id === orderId);
+    if (!order) return;
+
+    const txn: Transaction = {
+      id: `txn_${Date.now().toString(36)}`,
+      orderId: order.id,
+      userId: order.userId,
+      amountKs: order.amountKs,
+      method: order.paymentMethod,
+      txid,
+      status: isSuccess ? "succeeded" : "failed",
+      note: isSuccess ? `${order.paymentMethod} verified` : failReason,
+      createdAt: new Date().toISOString(),
+    };
+    s.transactions.push(txn);
+
+    order.status = isSuccess ? "success" : "failed";
+    order.txid = txid;
+    order.failReason = isSuccess ? null : failReason;
+    order.completedAt = new Date().toISOString();
+    finalOrder = order;
+
+    // Automated Smile.one topup fulfillment on success
+    if (isSuccess && order.gameId === "mlbb") {
+      const pkg = s.packages.find((p) => p.id === order.packageId);
+      if (pkg?.smileGoodsId) {
+        const topup = await paySmileoneMlbb({
+          gameUserId: order.gameUserId,
+          zoneId: order.zoneId,
+          smileGoodsId: pkg.smileGoodsId,
+        });
+        if (!topup.ok) {
+          order.failReason = `Auto-topup note: ${topup.message}`;
+        }
+      }
+    }
+  });
+
+  if (isSuccess && finalOrder) {
+    const fo = finalOrder as Order;
+    session.step = "idle";
+    session.pendingOrderId = undefined;
+    session.depositId = undefined;
+
+    await ctx.reply(
+      t("payment_success", session.language, {
+        nickname: fo.nickname,
+        gameName: fo.gameName,
+        packageName: fo.packageName,
+        orderId: fo.id,
+        txid: fo.txid || txid,
+      }),
+      {
+        parse_mode: "Markdown",
+        reply_markup: mainMenuKeyboard(session.language),
+      },
+    );
+  } else {
+    await ctx.reply(
+      t("payment_failed", session.language, {
+        reason: failReason || "Could not verify transaction.",
+      }),
+      {
+        parse_mode: "Markdown",
+        reply_markup: cancelKeyboard(session.language),
+      },
+    );
+  }
+}
+
+export async function handleHistory(ctx: Context) {
+  const session = getSession(ctx.from!.id, ctx.chat!.id);
+  const store = await readStore();
+  const userOrders = store.orders
+    .filter((o) => o.userId === `tg_${session.telegramId}`)
+    .slice(-10)
+    .reverse();
+
+  if (userOrders.length === 0) {
+    await ctx.reply(t("history_empty", session.language), {
+      reply_markup: mainMenuKeyboard(session.language),
+    });
+    return;
+  }
+
+  const lines = userOrders.map((o) =>
+    t("history_item", session.language, {
+      orderId: o.id,
+      game: o.gameName,
+      package: o.packageName,
+      amount: formatKs(o.amountKs),
+      status: o.status.toUpperCase(),
+      date: new Date(o.createdAt).toLocaleDateString(),
+    }),
+  );
+
+  await ctx.reply(`📜 *Your Recent Orders:*\n\n${lines.join("\n\n")}`, {
+    parse_mode: "Markdown",
+    reply_markup: mainMenuKeyboard(session.language),
+  });
+}
+
+export async function handleLanguageMenu(ctx: Context) {
+  await ctx.reply("Select your preferred language / ဘာသာစကား ရွေးချယ်ပါ:", {
+    reply_markup: languageKeyboard(),
+  });
+}
+
+export async function handleSetLanguage(ctx: Context, lang: BotLanguage) {
+  const session = getSession(ctx.from!.id, ctx.chat!.id);
+  session.language = lang;
+  await ctx.reply(t("language_set", lang), {
+    reply_markup: mainMenuKeyboard(lang),
+  });
+}

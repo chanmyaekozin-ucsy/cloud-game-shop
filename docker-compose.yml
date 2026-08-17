@@ -1,31 +1,35 @@
 services:
-  bot:
-    build: .
+  cgs:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
     restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: "3000"
+      HOSTNAME: "0.0.0.0"
+      NODE_ENV: production
     env_file:
+      - path: web/.env
+        required: false
       - path: .env
         required: false
     volumes:
-      - bot-data:/app/.data
-      # Shared Smile.one session (bot writes; web Admin → Supplier reads)
-      # Set SMILE_SESSION_PATH=/data/smileone/smileone_session.json
-      - /data/smileone:/data/smileone
-      # Shared merchant sessions (READ-ONLY here).
-      # Writer: Donimate Payment Manager only.
-      # Set KBZ_SESSION_PATH=/data/kbz/kbz_session.json
-      # Set WAVE_SESSION_PATH=/data/wave/wave_session.json
-      - /data/kbz:/data/kbz
-      - /data/wave:/data/wave
-      # Shop payment ON/OFF catalog (READ-ONLY; Payment Manager writes)
-      # Set SHOP_PAYMENT_ACCOUNTS_PATH=/data/payments/shop_payment_accounts.json
-      - /data/payments:/data/payments
-    shm_size: "1gb"
+      - web-data:/app/data
+      - /data/smileone:/data/smileone:ro
     healthcheck:
-      test: ["CMD-SHELL", "pgrep -f 'python bot/main.py' >/dev/null || exit 1"]
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/api/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
       interval: 30s
-      timeout: 10s
+      timeout: 5s
       retries: 3
-      start_period: 90s
+      start_period: 40s
 
 volumes:
-  bot-data:
+  web-data:
