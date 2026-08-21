@@ -58,9 +58,8 @@ export function packagesKeyboard(
   // 1 column: each package on its own line
   for (const p of pageItems) {
     const price = formatKs(salePriceKs(p));
-    const coinInfo = p.smileCoin && p.smileCoin > 0 ? ` (${p.smileCoin} Coin)` : "";
     const badge = p.offPercent > 0 ? ` [${p.offPercent}% OFF]` : "";
-    kb.text(`${p.displayName} - ${price}${coinInfo}${badge}`, `pkg:${p.id}`).row();
+    kb.text(`${p.displayName} - ${price}${badge}`, `pkg:${p.id}`).row();
   }
 
   // Pagination navigation row if more than 1 page

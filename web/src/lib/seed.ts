@@ -98,11 +98,18 @@ export function mergeCatalog(store: Store) {
   for (const pkg of store.packages) {
     if (typeof pkg.offPercent !== "number" || Number.isNaN(pkg.offPercent)) pkg.offPercent = 0;
     if (typeof pkg.offKs !== "number" || Number.isNaN(pkg.offKs)) pkg.offKs = 0;
-    if (typeof pkg.smileCoin !== "number" || Number.isNaN(pkg.smileCoin)) {
-      const defaultPkg = GAME_MODULES.flatMap((m) => m.packages).find(
-        (p) => p.id === pkg.id || (p.smileGoodsId && p.smileGoodsId === pkg.smileGoodsId),
-      );
-      pkg.smileCoin = defaultPkg?.smileCoin ?? 0;
+    const defaultPkg = GAME_MODULES.flatMap((m) => m.packages).find(
+      (p) => p.id === pkg.id || (p.smileGoodsId && p.smileGoodsId === pkg.smileGoodsId),
+    );
+    if (defaultPkg) {
+      if (typeof pkg.smileCoin !== "number" || Number.isNaN(pkg.smileCoin) || pkg.smileCoin === 0) {
+        pkg.smileCoin = defaultPkg.smileCoin;
+      }
+      if (!pkg.smileGoodsId && defaultPkg.smileGoodsId) {
+        pkg.smileGoodsId = defaultPkg.smileGoodsId;
+      }
+    } else if (typeof pkg.smileCoin !== "number" || Number.isNaN(pkg.smileCoin)) {
+      pkg.smileCoin = 0;
     }
   }
 }
