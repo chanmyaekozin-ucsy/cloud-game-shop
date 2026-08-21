@@ -4,8 +4,19 @@ import type { Role, Session } from "./types";
 
 const COOKIE = "cgs_session";
 
+let warnedSecret = false;
+
 function secret() {
-  const raw = process.env.AUTH_SECRET || "cloud-game-shop-dev-secret";
+  const raw = process.env.AUTH_SECRET;
+  if (!raw) {
+    if (process.env.NODE_ENV === "production" && !warnedSecret) {
+      console.warn(
+        "[SECURITY WARNING] AUTH_SECRET is not set! Using default secret in production is insecure. Set AUTH_SECRET in your environment.",
+      );
+      warnedSecret = true;
+    }
+    return new TextEncoder().encode("cloud-game-shop-dev-secret");
+  }
   return new TextEncoder().encode(raw);
 }
 
@@ -40,6 +51,7 @@ export async function setSessionCookie(session: Session) {
     sameSite: "lax",
     path: "/",
     maxAge: 60 * 60 * 24 * 14,
+    secure: process.env.NODE_ENV === "production",
   });
 }
 

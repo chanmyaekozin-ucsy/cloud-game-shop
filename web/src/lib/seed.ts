@@ -3,10 +3,20 @@ import { hashPin } from "./hash";
 import { loadShopEnv } from "./shop-env";
 import type { Store, User } from "./types";
 
+let warnedAdmin = false;
+
 export function adminCredentials() {
   loadShopEnv();
   const email = (process.env.ADMIN_EMAIL || "admin@cloudgameshop.com").trim().toLowerCase();
   const password = (process.env.ADMIN_PASSWORD || process.env.ADMIN_PIN || "admin123456").trim();
+
+  if (process.env.NODE_ENV === "production" && password === "admin123456" && !warnedAdmin) {
+    console.warn(
+      "[SECURITY WARNING] Default ADMIN_PASSWORD ('admin123456') detected in production! Please set a strong ADMIN_PASSWORD in your environment.",
+    );
+    warnedAdmin = true;
+  }
+
   return {
     email: email || "admin@cloudgameshop.com",
     password: password || "admin123456",
@@ -15,6 +25,7 @@ export function adminCredentials() {
 
 export function seedStore(): Store {
   const admin = adminCredentials();
+  const isProd = process.env.NODE_ENV === "production";
   return {
     users: [
       {
@@ -24,7 +35,7 @@ export function seedStore(): Store {
         email: "user@cloudgameshop.com",
         role: "user",
         pinHash: hashPin("123456"),
-        balanceKs: 500000,
+        balanceKs: isProd ? 0 : 500000,
       },
       {
         id: "user_admin",

@@ -1,10 +1,17 @@
 import { NextRequest } from "next/server";
 import { jsonError, setSessionCookie } from "@/lib/auth";
 import { hashPassword } from "@/lib/hash";
+import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit";
 import { readStore } from "@/lib/store";
 
 export async function POST(req: NextRequest) {
   try {
+    const ip = getClientIp(req);
+    const rl = checkRateLimit(`login:${ip}`, 5, 60 * 1000);
+    if (!rl.ok) {
+      return rateLimitResponse(rl.resetAt);
+    }
+
     const body = (await req.json()) as { identifier?: string; pin?: string; password?: string };
     const identifier = String(body.identifier ?? "").trim().toLowerCase();
     const secret = String(body.password ?? body.pin ?? "").trim();

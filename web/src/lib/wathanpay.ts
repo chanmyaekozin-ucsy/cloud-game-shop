@@ -30,6 +30,14 @@ export async function verifyWathanPayPayment(
 
   // If no merchant API key is configured (e.g. local development or demo environment)
   if (!apiKey) {
+    if (process.env.NODE_ENV === "production") {
+      return {
+        ok: false,
+        verified: false,
+        status: "failed",
+        error: "WATHANPAY_API_KEY is not configured on production server.",
+      };
+    }
     return {
       ok: true,
       verified: false,

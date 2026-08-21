@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { jsonError, requireUser } from "@/lib/auth";
 import { failedStatus, paidStatus, verifyDepositLast5 } from "@/lib/dominate";
+import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit";
 import { readStore, updateStore } from "@/lib/store";
 import { paySmileoneMlbb } from "@/lib/smileone";
 import { sendAdminManualTopupAlert } from "@/lib/telegram-alert";
@@ -28,6 +29,14 @@ export async function POST(
   try {
     const session = await requireUser();
     const { id } = await params;
+
+    const ip = getClientIp(req);
+    const rlIp = checkRateLimit(`confirm:${ip}`, 10, 60 * 1000);
+    if (!rlIp.ok) return rateLimitResponse(rlIp.resetAt);
+
+    const rlOrder = checkRateLimit(`confirm_order:${id}`, 6, 60 * 1000);
+    if (!rlOrder.ok) return rateLimitResponse(rlOrder.resetAt);
+
     const body = (await req.json()) as { last5?: string; accessToken?: string };
     const last5 = String(body.last5 ?? "").replace(/\D/g, "").slice(0, 5);
     if (last5.length !== 5) {
@@ -41,6 +50,7 @@ export async function POST(
       return Response.json({ error: "This order is already closed." }, { status: 409 });
     }
 
+    const isDev = process.env.NODE_ENV !== "production";
     let topupFailedReason: string | null = null;
     let finalOrder: Order | null = null;
 
@@ -79,7 +89,7 @@ export async function POST(
             message: deposit.verify_reason || "Payment failed.",
             txnStatus: "failed",
           });
-        } else if (last5 === "99999") {
+        } else if (isDev && last5 === "99999") {
           finish(order, txn, {
             status: "failed",
             txid,
@@ -156,7 +166,7 @@ export async function POST(
       store.transactions.push(txn);
 
       const payFailed =
-        last5 === "00000" ||
+        (isDev && last5 === "00000") ||
         verification.ok === false ||
         (!process.env.WATHANPAY_API_KEY && user.balanceKs < order.amountKs);
 
@@ -169,7 +179,7 @@ export async function POST(
       }
 
       if (!process.env.WATHANPAY_API_KEY) user.balanceKs -= order.amountKs;
-      if (last5 === "99999") {
+      if (isDev && last5 === "99999") {
         finish(order, txn, {
           status: "failed",
           txid,
