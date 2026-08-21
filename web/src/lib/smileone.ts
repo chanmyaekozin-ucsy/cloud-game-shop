@@ -56,13 +56,15 @@ export function smileSessionPath(): string | null {
   const fromEnv = (process.env.SMILE_SESSION_PATH || "").trim();
   const candidates = [
     fromEnv,
+    "/data/smileone/smileone_session.json",
+    path.join(process.cwd(), "data", "smileone_session.json"),
     path.join(process.cwd(), "..", ".data", "smileone_session.json"),
     path.join(process.cwd(), ".data", "smileone_session.json"),
   ].filter(Boolean) as string[];
   for (const candidate of candidates) {
     if (existsSync(candidate)) return candidate;
   }
-  return candidates[0] || null;
+  return candidates[0] || path.join(process.cwd(), "data", "smileone_session.json");
 }
 
 function loadSessionFile(): { path: string; data: SessionFile } | null {

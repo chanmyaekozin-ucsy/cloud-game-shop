@@ -22,8 +22,8 @@ COPY --from=builder --chown=node:node /app/.next/static ./.next/static
 COPY --from=builder --chown=node:node /app/dist ./dist
 COPY --from=builder --chown=node:node /app/scripts/start-all.sh ./start.sh
 RUN chmod +x ./start.sh && \
-    mkdir -p /app/data /app/data/uploads/games && \
-    chown -R node:node /app/data /app/data/uploads
+    mkdir -p /app/data /app/data/uploads/games /app/.data && \
+    chown -R node:node /app/data /app/data/uploads /app/.data
 
 USER node
 

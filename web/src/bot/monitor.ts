@@ -29,17 +29,22 @@ export function getMonitorConfig(): MonitorConfig {
 
 function pinStatePath(): string {
   const candidates = [
+    path.join(process.cwd(), "data", "monitor_pin.json"),
     path.join(process.cwd(), "..", ".data", "monitor_pin.json"),
     path.join(process.cwd(), ".data", "monitor_pin.json"),
   ];
   for (const candidate of candidates) {
     if (existsSync(candidate)) return candidate;
   }
+  const appData = path.join(process.cwd(), "data");
+  if (existsSync(appData)) {
+    return path.join(appData, "monitor_pin.json");
+  }
   const parentData = path.join(process.cwd(), "..", ".data");
   if (existsSync(parentData)) {
     return path.join(parentData, "monitor_pin.json");
   }
-  return path.join(process.cwd(), ".data", "monitor_pin.json");
+  return path.join(process.cwd(), "data", "monitor_pin.json");
 }
 
 interface PinState {
