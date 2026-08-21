@@ -6,7 +6,8 @@ import { useEffect } from "react";
 import { useAuth } from "@/components/Auth";
 
 const NAV = [
-  { href: "/admin", label: "Games" },
+  { href: "/admin", label: "Dashboard" },
+  { href: "/admin/games", label: "Games" },
   { href: "/admin/packages", label: "Packages" },
   { href: "/admin/purchases", label: "Purchases" },
   { href: "/admin/transactions", label: "Transactions" },
