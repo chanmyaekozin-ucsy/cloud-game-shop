@@ -20,6 +20,8 @@ export type User = {
   pinHash: string;
   balanceKs: number;
   wathanpaySub?: string;
+  twoFactorSecret?: string | null;
+  twoFactorEnabled?: boolean;
 };
 
 export type Game = {
