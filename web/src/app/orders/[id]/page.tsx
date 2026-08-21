@@ -236,7 +236,7 @@ export default function OrderResultPage() {
                   lineHeight: 1.45,
                 }}
               >
-                ℹ️ <strong>Payment Received:</strong> Automated top-up is processing or awaiting manual fulfillment. An admin has been notified and will fulfill your diamonds shortly.
+                <strong>Payment Received:</strong> Automated top-up is processing or awaiting manual fulfillment. An admin has been notified and will fulfill your diamonds shortly.
               </div>
             ) : order.failReason ? (
               <p className="err" style={{ marginTop: 10 }}>{order.failReason}</p>

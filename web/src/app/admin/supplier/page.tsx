@@ -124,7 +124,7 @@ export default function AdminSupplierPage() {
             fontWeight: 600,
           }}
         >
-          ✅ {successMsg}
+          {successMsg}
         </div>
       ) : null}
 
@@ -214,7 +214,7 @@ export default function AdminSupplierPage() {
       </div>
 
       <p className="hint">
-        💡 <strong>How to retrieve Session Token:</strong> Log in to{" "}
+        <strong>How to retrieve Session Token:</strong> Log in to{" "}
         <a
           href="https://www.smile.one"
           target="_blank"

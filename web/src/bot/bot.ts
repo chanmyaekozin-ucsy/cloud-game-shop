@@ -154,15 +154,15 @@ export function createBot() {
 export async function startBot() {
   const token = getBotToken();
   if (!token) {
-    console.log("ℹ️ BOT_TOKEN not provided, skipping Telegram bot start.");
+    console.log("[Bot] BOT_TOKEN not provided, skipping Telegram bot start.");
     return;
   }
   const bot = createBot();
-  console.log("🤖 Starting Cloud Game Shop Telegram Bot...");
+  console.log("[Bot] Starting Cloud Game Shop Telegram Bot...");
   await bot.start({
     drop_pending_updates: true,
     onStart: async (info) => {
-      console.log(`✅ Cloud Game Shop Bot started as @${info.username}`);
+      console.log(`[Bot] Cloud Game Shop Bot started as @${info.username}`);
       await bot.api
         .setMyCommands([
           { command: "start", description: "Main Menu (ပင်မစာမျက်နှာ)" },

@@ -23,17 +23,17 @@ export async function sendAdminManualTopupAlert(
   if (targets.size === 0) return;
 
   const alertText = [
-    "⚠️ *[MANUAL TOP-UP REQUIRED]*",
+    "*[MANUAL TOP-UP REQUIRED]*",
     `Payment confirmed, but automated delivery could not complete: \`${reason}\``,
     "",
-    `🆔 *Order ID:* \`${order.id}\``,
-    `👤 *User / Nickname:* ${order.nickname || "—"}`,
-    `🎮 *Game:* ${order.gameName} (\`${order.gameUserId}\`${order.zoneId ? ` (${order.zoneId})` : ""})`,
-    `💎 *Package:* ${order.packageName}`,
-    `💰 *Amount:* ${order.amountKs.toLocaleString()} Ks`,
-    `💳 *Payment Method:* ${order.paymentMethod} (\`${order.txid || "—"}\`)`,
+    `*Order ID:* \`${order.id}\``,
+    `*User / Nickname:* ${order.nickname || "—"}`,
+    `*Game:* ${order.gameName} (\`${order.gameUserId}\`${order.zoneId ? ` (${order.zoneId})` : ""})`,
+    `*Package:* ${order.packageName}`,
+    `*Amount:* ${order.amountKs.toLocaleString()} Ks`,
+    `*Payment Method:* ${order.paymentMethod} (\`${order.txid || "—"}\`)`,
     "",
-    "👉 Please manually fulfill this order or update the Smile.one session in the Admin panel.",
+    "Please manually fulfill this order or update the Smile.one session in the Admin panel.",
   ].join("\n");
 
   for (const target of targets) {

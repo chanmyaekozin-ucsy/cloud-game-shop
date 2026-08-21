@@ -110,16 +110,16 @@ export function formatMonitorMessage(
   const intervalStr = minSec === maxSec ? `${minSec}s` : `${minSec}–${maxSec}s`;
 
   const lines = [
-    "📊 Cloud Game Shop — Smile.one Balance",
+    "Cloud Game Shop — Smile.one Balance",
     `Updated: ${nowMmt}`,
     `Refresh: ${intervalStr}`,
     "",
   ];
 
   if (status.error) {
-    lines.push(`Smile.one: ${status.error} ⚠️`);
+    lines.push(`Smile.one: ${status.error} (Warning)`);
   } else {
-    lines.push(`Smile.one: ${status.balance ?? "—"} ✅`);
+    lines.push(`Smile.one: ${status.balance ?? "—"}`);
   }
 
   return lines.join("\n");
@@ -193,16 +193,16 @@ export async function runMonitorTick(bot: Bot): Promise<void> {
 export async function startBalanceMonitor(bot: Bot): Promise<void> {
   const config = getMonitorConfig();
   if (!config.enabled) {
-    console.log("ℹ️ Smile.one balance monitor disabled (MONITOR_ENABLED=false).");
+    console.log("[Monitor] Smile.one balance monitor disabled (MONITOR_ENABLED=false).");
     return;
   }
   if (!config.proofsGroupId) {
-    console.warn("⚠️ MONITOR_ENABLED is true but PAYMENTS_PROOFS_GROUP_ID is unset — monitor skipped.");
+    console.warn("[Monitor] MONITOR_ENABLED is true but PAYMENTS_PROOFS_GROUP_ID is unset — monitor skipped.");
     return;
   }
 
   console.log(
-    `📊 Smile.one balance monitor started (${config.minSec}–${config.maxSec}s random → group ${config.proofsGroupId})`
+    `[Monitor] Smile.one balance monitor started (${config.minSec}–${config.maxSec}s random -> group ${config.proofsGroupId})`
   );
 
   // Small delay before initial tick

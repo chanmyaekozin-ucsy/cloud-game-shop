@@ -45,7 +45,7 @@ async function run() {
       pkg.offPercent = mlbbPkg.offPercent;
     }
   });
-  console.log("\n✅ Test Passed: Telegram bot dynamically queries store.json with zero divergence!");
+  console.log("\n[PASS] Test Passed: Telegram bot dynamically queries store.json with zero divergence!");
 }
 
 run().catch((err) => {

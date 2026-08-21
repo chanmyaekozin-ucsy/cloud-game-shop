@@ -116,10 +116,10 @@ def run_mlbb_region(client: SmileOneClient) -> None:
     print()
     result = client.check_mlbb_account(gid, sid)
     if isinstance(result, str):
-        print(f"❌ {result}", file=sys.stderr)
+        print(f"Error: {result}", file=sys.stderr)
         return
     assert isinstance(result, MlbbAccount)
-    print("✅ Account Found!")
+    print("Account Found:")
     print(f"ID: {result.game_id}")
     print(f"Server: {result.server_id}")
     print(f"Nickname: {result.nickname}")

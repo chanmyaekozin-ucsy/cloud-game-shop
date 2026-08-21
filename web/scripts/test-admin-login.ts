@@ -32,9 +32,9 @@ async function testAdminLogin() {
   console.log(`Password hash match '${testPassword}':`, passwordHashMatch);
 
   if (emailMatch && passwordHashMatch) {
-    console.log("\n✅ Admin login successfully verified!");
+    console.log("\n[PASS] Admin login successfully verified!");
   } else {
-    console.error("\n❌ Admin login verification failed!");
+    console.error("\n[FAIL] Admin login verification failed!");
     process.exit(1);
   }
 }

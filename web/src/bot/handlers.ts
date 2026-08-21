@@ -168,7 +168,7 @@ export async function handlePackageSelect(ctx: Context, pkgId: string) {
   // Pre-check Smile.one supplier balance availability
   const check = await validateSmileonePackageAvailability(pkg);
   if (!check.ok) {
-    await ctx.reply(`⚠️ ${check.error}`, {
+    await ctx.reply(check.error || "Package is currently unavailable.", {
       reply_markup: mainMenuKeyboard(session.language),
     });
     return;
@@ -257,7 +257,7 @@ export async function performAccountVerification(
       region = verified.region || "Myanmar";
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Account not found.";
-      await ctx.reply(`❌ ${msg}\nPlease verify your Game ID and Server and try again.`, {
+      await ctx.reply(`${msg}\nPlease verify your Game ID and Server and try again.`, {
         reply_markup: cancelKeyboard(session.language),
       });
       return;
@@ -304,7 +304,7 @@ export async function handlePaymentSelect(ctx: Context) {
   if (pkg) {
     const check = await validateSmileonePackageAvailability(pkg);
     if (!check.ok) {
-      await ctx.reply(`⚠️ ${check.error}`, {
+      await ctx.reply(check.error || "Package is currently unavailable.", {
         reply_markup: mainMenuKeyboard(session.language),
       });
       return;
@@ -615,17 +615,17 @@ export async function notifyAdminsManualTopup(
   for (const id of adminIds) targets.add(id);
 
   const alertText = [
-    "⚠️ *[MANUAL TOP-UP REQUIRED]*",
+    "*[MANUAL TOP-UP REQUIRED]*",
     `Payment confirmed, but automated delivery could not complete: \`${reason}\``,
     "",
-    `🆔 *Order ID:* \`${order.id}\``,
-    `👤 *User / Nickname:* ${order.nickname || "—"}`,
-    `🎮 *Game:* ${order.gameName} (\`${order.gameUserId}\`${order.zoneId ? ` (${order.zoneId})` : ""})`,
-    `💎 *Package:* ${order.packageName}`,
-    `💰 *Amount:* ${order.amountKs.toLocaleString()} Ks`,
-    `💳 *Payment Method:* ${order.paymentMethod} (\`${order.txid || "—"}\`)`,
+    `*Order ID:* \`${order.id}\``,
+    `*User / Nickname:* ${order.nickname || "—"}`,
+    `*Game:* ${order.gameName} (\`${order.gameUserId}\`${order.zoneId ? ` (${order.zoneId})` : ""})`,
+    `*Package:* ${order.packageName}`,
+    `*Amount:* ${order.amountKs.toLocaleString()} Ks`,
+    `*Payment Method:* ${order.paymentMethod} (\`${order.txid || "—"}\`)`,
     "",
-    "👉 Please manually fulfill this order or update the Smile.one session in the Admin panel.",
+    "Please manually fulfill this order or update the Smile.one session in the Admin panel.",
   ].join("\n");
 
   for (const target of targets) {
@@ -665,7 +665,7 @@ export async function handleHistory(ctx: Context) {
     }),
   );
 
-  await ctx.reply(`📜 *Your Recent Orders:*\n\n${lines.join("\n\n")}`, {
+  await ctx.reply(`*Your Recent Orders:*\n\n${lines.join("\n\n")}`, {
     parse_mode: "Markdown",
     reply_markup: mainMenuKeyboard(session.language),
   });
