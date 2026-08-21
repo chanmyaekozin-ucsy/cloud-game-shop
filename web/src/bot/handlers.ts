@@ -20,10 +20,38 @@ import {
 import type { BotLanguage, BotSession, BotStep } from "./types";
 
 const sessions = new Map<number, BotSession>();
+const MAX_SESSIONS = 5000;
+const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
+
+function pruneStaleSessions() {
+  const cutoff = Date.now() - SESSION_TTL_MS;
+  for (const [userId, s] of sessions.entries()) {
+    const updated = Date.parse(s.updatedAt || "");
+    if (!Number.isFinite(updated) || updated < cutoff) {
+      sessions.delete(userId);
+    }
+  }
+  if (sessions.size > MAX_SESSIONS) {
+    const entries = [...sessions.entries()].sort((a, b) =>
+      (a[1].updatedAt || "").localeCompare(b[1].updatedAt || ""),
+    );
+    const removeCount = sessions.size - MAX_SESSIONS;
+    for (let i = 0; i < removeCount; i++) {
+      sessions.delete(entries[i][0]);
+    }
+  }
+}
+
+if (typeof setInterval !== "undefined") {
+  setInterval(pruneStaleSessions, 60 * 60 * 1000).unref?.();
+}
 
 export function getSession(userId: number, chatId: number): BotSession {
   let s = sessions.get(userId);
   if (!s) {
+    if (sessions.size >= MAX_SESSIONS) {
+      pruneStaleSessions();
+    }
     s = {
       telegramId: userId,
       chatId,
@@ -33,6 +61,8 @@ export function getSession(userId: number, chatId: number): BotSession {
       updatedAt: new Date().toISOString(),
     };
     sessions.set(userId, s);
+  } else {
+    s.updatedAt = new Date().toISOString();
   }
   return s;
 }

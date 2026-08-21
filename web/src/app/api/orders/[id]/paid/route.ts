@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { jsonError, requireUser } from "@/lib/auth";
+import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit";
 import { readStore, updateStore } from "@/lib/store";
 import { paySmileoneMlbb } from "@/lib/smileone";
 import { sendAdminManualTopupAlert } from "@/lib/telegram-alert";
@@ -12,6 +13,10 @@ export async function POST(
 ) {
   try {
     const session = await requireUser();
+    const ip = getClientIp(req);
+    const rl = checkRateLimit(`order_paid:${session.sub || ip}`, 15, 60 * 1000);
+    if (!rl.ok) return rateLimitResponse(rl.resetAt);
+
     const { id } = await params;
     const body = (await req.json().catch(() => ({}))) as { txid?: string };
     const clientTxid = String(body.txid ?? "").trim();

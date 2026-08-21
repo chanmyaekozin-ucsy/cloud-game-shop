@@ -152,7 +152,7 @@ export async function getSmileSupplierStatus(): Promise<SmileSupplierStatus> {
     region: String(loaded.data.region || region()),
     savedAt: String(loaded.data.saved_at || "") || null,
     hasPhpSessid,
-    path: loaded.path,
+    path: loaded.path ? path.basename(loaded.path) : null,
   };
 
   if (!cookie || !hasPhpSessid) {

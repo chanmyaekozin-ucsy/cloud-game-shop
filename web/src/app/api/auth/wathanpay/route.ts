@@ -12,8 +12,8 @@ export async function POST(req: NextRequest) {
 
     const body = (await req.json()) as { accessToken?: string };
     const token = String(body.accessToken ?? "").trim();
-    if (!token) {
-      return Response.json({ error: "Missing WathanPay token." }, { status: 401 });
+    if (!token || token.length < 16 || token.length > 512 || !/^[A-Za-z0-9._~+/-]+=*$/.test(token)) {
+      return Response.json({ error: "Invalid or missing WathanPay token." }, { status: 401 });
     }
     const sub = `wp_${hashToken(token)}`;
     const isProd = process.env.NODE_ENV === "production";

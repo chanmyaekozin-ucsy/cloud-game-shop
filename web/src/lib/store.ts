@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "fs/promises";
+import { mkdir, readFile, rename, writeFile } from "fs/promises";
 import path from "path";
 import { mergeCatalog, seedStore, syncAdminFromEnv } from "./seed";
 import type { Store } from "./types";
@@ -24,25 +24,41 @@ function expireStaleOrders(store: Store) {
 let queue: Promise<unknown> = Promise.resolve();
 
 async function readRaw(): Promise<Store> {
+  let raw: string;
   try {
-    const raw = await readFile(FILE, "utf8");
+    raw = await readFile(FILE, "utf8");
+  } catch (err: unknown) {
+    if (err && typeof err === "object" && "code" in err && err.code === "ENOENT") {
+      const seeded = seedStore();
+      await writeRaw(seeded);
+      return seeded;
+    }
+    throw err;
+  }
+
+  try {
     const store = JSON.parse(raw) as Store;
     mergeCatalog(store);
     let dirty = expireStaleOrders(store);
     if (syncAdminFromEnv(store)) dirty = true;
     if (dirty) await writeRaw(store);
     return store;
-  } catch {
+  } catch (parseErr) {
+    console.error("[CRITICAL] Failed to parse store.json. Preserving corrupted backup:", parseErr);
+    const backupPath = `${FILE}.corrupted.${Date.now()}`;
+    await writeFile(backupPath, raw, "utf8").catch(() => undefined);
     const seeded = seedStore();
-    await mkdir(path.dirname(FILE), { recursive: true });
-    await writeFile(FILE, JSON.stringify(seeded, null, 2) + "\n", "utf8");
+    await writeRaw(seeded);
     return seeded;
   }
 }
 
 async function writeRaw(store: Store) {
-  await mkdir(path.dirname(FILE), { recursive: true });
-  await writeFile(FILE, JSON.stringify(store, null, 2) + "\n", "utf8");
+  const dir = path.dirname(FILE);
+  await mkdir(dir, { recursive: true });
+  const tmpFile = `${FILE}.tmp.${Date.now()}.${Math.random().toString(36).slice(2, 8)}`;
+  await writeFile(tmpFile, JSON.stringify(store, null, 2) + "\n", "utf8");
+  await rename(tmpFile, FILE);
 }
 
 export function readStore(): Promise<Store> {

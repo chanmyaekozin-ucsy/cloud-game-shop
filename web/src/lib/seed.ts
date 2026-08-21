@@ -1,5 +1,5 @@
 import { GAME_MODULES, toGameRecord } from "@/games/shared/catalog";
-import { hashPin } from "./hash";
+import { hashPin, verifyPin } from "./hash";
 import { loadShopEnv } from "./shop-env";
 import type { Store, User } from "./types";
 
@@ -57,7 +57,6 @@ export function seedStore(): Store {
 /** Keep the seeded admin account in sync with ADMIN_EMAIL / ADMIN_PASSWORD. */
 export function syncAdminFromEnv(store: Store) {
   const { email, password } = adminCredentials();
-  const pinHash = hashPin(password);
   const admin = store.users.find((u) => u.id === "user_admin" || u.role === "admin");
   if (!admin) {
     const created: User = {
@@ -66,7 +65,7 @@ export function syncAdminFromEnv(store: Store) {
       phone: "09970000001",
       email,
       role: "admin",
-      pinHash,
+      pinHash: hashPin(password),
       balanceKs: 0,
     };
     store.users.push(created);
@@ -77,8 +76,8 @@ export function syncAdminFromEnv(store: Store) {
     admin.email = email;
     changed = true;
   }
-  if (admin.pinHash !== pinHash) {
-    admin.pinHash = pinHash;
+  if (!verifyPin(password, admin.pinHash)) {
+    admin.pinHash = hashPin(password);
     changed = true;
   }
   if (admin.role !== "admin") {

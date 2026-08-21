@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { jsonError, requireUser } from "@/lib/auth";
 import { createDeposit, listPaymentMethods } from "@/lib/dominate";
+import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit";
 import { updateStore } from "@/lib/store";
 
 export async function POST(
@@ -9,6 +10,10 @@ export async function POST(
 ) {
   try {
     const session = await requireUser();
+    const ip = getClientIp(req);
+    const rl = checkRateLimit(`order_pay:${session.sub || ip}`, 15, 60 * 1000);
+    if (!rl.ok) return rateLimitResponse(rl.resetAt);
+
     const { id } = await params;
     const body = (await req.json()) as { accountId?: string };
     const accountId = String(body.accountId ?? "").trim();
