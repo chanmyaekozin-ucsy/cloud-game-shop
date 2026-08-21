@@ -195,8 +195,9 @@ export default function AdminSecurityPage() {
                 style={{
                   display: "grid",
                   placeItems: "center",
-                  padding: "16px 0",
-                  background: "var(--bg)",
+                  padding: "20px",
+                  background: "#ffffff",
+                  border: "1px solid var(--border)",
                   borderRadius: "12px",
                   marginBottom: "16px",
                 }}

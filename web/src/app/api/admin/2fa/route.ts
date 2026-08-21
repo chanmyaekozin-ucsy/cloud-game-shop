@@ -21,7 +21,7 @@ export async function GET() {
     // Generate new secret & QR code for setup
     const secret = generateTotpSecret(20);
     const otpauthUrl = getOtpAuthUrl(secret, user.email || "admin@cloudgameshop.com", "Cloud Game Shop");
-    const qrCodeSvg = generateQrSvg(otpauthUrl, 200);
+    const qrCodeSvg = await generateQrSvg(otpauthUrl, 220);
 
     return Response.json({
       enabled: false,
