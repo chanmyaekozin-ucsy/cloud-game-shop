@@ -11,7 +11,6 @@ type SupplierStatus = {
     region: string;
     savedAt: string | null;
     hasPhpSessid: boolean;
-    phpsessid: string | null;
     path: string | null;
   };
   balance: string | null;
@@ -28,10 +27,8 @@ export default function AdminSupplierPage() {
   const [saving, setSaving] = useState(false);
 
   // Form state
-  const [phpsessid, setPhpsessid] = useState("");
+  const [sessionInput, setSessionInput] = useState("");
   const [selectedRegion, setSelectedRegion] = useState("br");
-  const [showCookieHeader, setShowCookieHeader] = useState(false);
-  const [cookieHeader, setCookieHeader] = useState("");
 
   const load = async () => {
     setBusy(true);
@@ -41,9 +38,6 @@ export default function AdminSupplierPage() {
       setSupplier(data.supplier);
       if (data.supplier?.session?.region) {
         setSelectedRegion(data.supplier.session.region);
-      }
-      if (data.supplier?.session?.phpsessid) {
-        setPhpsessid(data.supplier.session.phpsessid);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Load failed");
@@ -58,11 +52,14 @@ export default function AdminSupplierPage() {
 
   const handleSaveSession = async (e: FormEvent) => {
     e.preventDefault();
+    if (!sessionInput.trim()) return;
+
     setSaving(true);
     setError("");
     setSuccessMsg("");
 
     try {
+      const isFullCookie = sessionInput.includes("=") && sessionInput.includes(";");
       const res = await api<{
         ok: boolean;
         message: string;
@@ -70,13 +67,14 @@ export default function AdminSupplierPage() {
       }>("/api/admin/supplier", {
         method: "POST",
         body: JSON.stringify({
-          phpsessid: phpsessid.trim() || undefined,
-          cookieHeader: showCookieHeader && cookieHeader.trim() ? cookieHeader.trim() : undefined,
+          phpsessid: isFullCookie ? undefined : sessionInput.trim(),
+          cookieHeader: isFullCookie ? sessionInput.trim() : undefined,
           region: selectedRegion,
         }),
       });
 
       setSupplier(res.supplier);
+      setSessionInput("");
       if (res.ok) {
         setSuccessMsg(res.message);
       } else {
@@ -147,17 +145,11 @@ export default function AdminSupplierPage() {
           <b>{session?.region?.toUpperCase() || "—"}</b>
         </div>
         <div className="row">
-          <span>PHPSESSID</span>
+          <span>Session Token</span>
           <b>
-            {session?.hasPhpSessid ? (
-              <span style={{ fontFamily: "monospace", fontSize: 13 }}>
-                {session.phpsessid
-                  ? `${session.phpsessid.slice(0, 8)}...${session.phpsessid.slice(-4)}`
-                  : "Present"}
-              </span>
-            ) : (
-              "Missing"
-            )}
+            <span className={`pill ${session?.hasPhpSessid ? "on" : "fail"}`}>
+              {session?.hasPhpSessid ? "Configured" : "Missing"}
+            </span>
           </b>
         </div>
         <div className="row">
@@ -181,21 +173,22 @@ export default function AdminSupplierPage() {
       </div>
 
       <div className="summary" style={{ marginBottom: 16 }}>
-        <h3 style={{ fontSize: 16, marginBottom: 8 }}>Update Session & PHPSESSID</h3>
+        <h3 style={{ fontSize: 16, marginBottom: 8 }}>Update Session</h3>
         <p className="hint" style={{ marginBottom: 14 }}>
           Update the Smile.one session cookie persistently. The web shop and Telegram bot balance monitor will immediately use this updated session.
         </p>
 
         <form onSubmit={handleSaveSession}>
           <div className="field">
-            <label>PHPSESSID Token / Cookie Value</label>
+            <label>New Session Token / Cookie</label>
             <input
-              type="text"
-              placeholder="e.g. 6jufhq1vcjrpbguqgg0766rq77 (or paste full cookie string)"
-              value={phpsessid}
-              onChange={(e) => setPhpsessid(e.target.value)}
+              type="password"
+              placeholder="Paste new PHPSESSID or full cookie header"
+              value={sessionInput}
+              onChange={(e) => setSessionInput(e.target.value)}
               style={{ fontFamily: "monospace", fontSize: 13 }}
-              required={!cookieHeader}
+              required
+              autoComplete="off"
             />
           </div>
 
@@ -214,37 +207,14 @@ export default function AdminSupplierPage() {
             </select>
           </div>
 
-          {showCookieHeader ? (
-            <div className="field">
-              <label>Full Cookie Header (Optional Override)</label>
-              <textarea
-                rows={3}
-                placeholder="Paste full Cookie header if needed: _gcl_au=...; PHPSESSID=...; _csrf=..."
-                value={cookieHeader}
-                onChange={(e) => setCookieHeader(e.target.value)}
-                style={{ fontFamily: "monospace", fontSize: 12 }}
-              />
-            </div>
-          ) : (
-            <div style={{ marginBottom: 14 }}>
-              <button
-                type="button"
-                className="linkish"
-                onClick={() => setShowCookieHeader(true)}
-              >
-                + Paste full cookie header instead
-              </button>
-            </div>
-          )}
-
-          <button className="btn" type="submit" disabled={saving}>
+          <button className="btn" type="submit" disabled={saving || !sessionInput.trim()}>
             {saving ? "Saving & Verifying with Smile.one…" : "Save & Verify Session"}
           </button>
         </form>
       </div>
 
       <p className="hint">
-        💡 <strong>How to retrieve PHPSESSID:</strong> Log in to{" "}
+        💡 <strong>How to retrieve Session Token:</strong> Log in to{" "}
         <a
           href="https://www.smile.one"
           target="_blank"
@@ -254,7 +224,7 @@ export default function AdminSupplierPage() {
           smile.one
         </a>{" "}
         in your browser → Open DevTools (F12) → <em>Application</em> tab → <em>Cookies</em> → Copy the
-        value of <code>PHPSESSID</code> and paste it above.
+        value of <code>PHPSESSID</code> and paste it into the password box above.
       </p>
     </>
   );
