@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { jsonError } from "@/lib/auth";
+import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit";
 import { getGame } from "@/games/shared/catalog";
 
 export async function POST(
@@ -7,6 +8,10 @@ export async function POST(
   { params }: { params: Promise<{ slug: string }> },
 ) {
   try {
+    const ip = getClientIp(req);
+    const rl = checkRateLimit(`game_verify:${ip}`, 20, 60 * 1000);
+    if (!rl.ok) return rateLimitResponse(rl.resetAt);
+
     const { slug } = await params;
     const game = getGame(slug);
     if (!game) return Response.json({ error: "Game not found." }, { status: 404 });

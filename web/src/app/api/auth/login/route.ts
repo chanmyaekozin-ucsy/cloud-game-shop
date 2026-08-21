@@ -1,8 +1,8 @@
 import { NextRequest } from "next/server";
 import { jsonError, setSessionCookie } from "@/lib/auth";
-import { hashPassword } from "@/lib/hash";
+import { hashPassword, verifyPassword } from "@/lib/hash";
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit";
-import { readStore } from "@/lib/store";
+import { readStore, updateStore } from "@/lib/store";
 import { verifyTotp } from "@/lib/totp";
 
 export async function POST(req: NextRequest) {
@@ -32,8 +32,17 @@ export async function POST(req: NextRequest) {
         u.phone.replace(/\s/g, "") === identifier.replace(/\s/g, "") ||
         u.email.toLowerCase() === identifier,
     );
-    if (!user || user.pinHash !== hashPassword(secret)) {
+    if (!user || !verifyPassword(secret, user.pinHash)) {
       return Response.json({ error: "Wrong credentials. Please try again." }, { status: 401 });
+    }
+
+    // Transparently upgrade legacy SHA-256 hash to scrypt
+    if (!user.pinHash.startsWith("scrypt:")) {
+      await updateStore((s) => {
+        const u = s.users.find((item) => item.id === user.id);
+        if (u) u.pinHash = hashPassword(secret);
+        return u;
+      }).catch(() => undefined);
     }
 
     // Check 2FA if enabled

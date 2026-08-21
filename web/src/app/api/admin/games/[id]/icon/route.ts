@@ -19,6 +19,10 @@ export async function POST(
   try {
     await requireAdmin();
     const { id } = await params;
+    if (!/^[A-Za-z0-9_-]+$/.test(id)) {
+      return Response.json({ error: "Invalid game ID format." }, { status: 400 });
+    }
+
     const form = await req.formData();
     const file = form.get("file");
     if (!(file instanceof File) || file.size === 0) {
@@ -32,14 +36,34 @@ export async function POST(
       return Response.json({ error: "Use PNG, JPG, or WebP." }, { status: 400 });
     }
 
-    await mkdir(DIR, { recursive: true });
     const bytes = Buffer.from(await file.arrayBuffer());
+
+    // Validate magic bytes to prevent masqueraded files
+    const isPng = bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47;
+    const isJpg = bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+    const isWebp = bytes.length >= 12 && bytes.toString("ascii", 0, 4) === "RIFF" && bytes.toString("ascii", 8, 12) === "WEBP";
+
+    if (!isPng && !isJpg && !isWebp) {
+      return Response.json({ error: "Invalid image file format." }, { status: 400 });
+    }
+
+    const baseDir = path.resolve(DIR);
+    await mkdir(baseDir, { recursive: true });
     const filename = `${id}.${ext}`;
-    await writeFile(path.join(DIR, filename), bytes);
+    const targetPath = path.resolve(baseDir, filename);
+
+    if (!targetPath.startsWith(baseDir)) {
+      return Response.json({ error: "Invalid target path." }, { status: 400 });
+    }
+
+    await writeFile(targetPath, bytes);
     await Promise.all(
       Object.values(TYPES)
         .filter((other) => other !== ext)
-        .map((other) => unlink(path.join(DIR, `${id}.${other}`)).catch(() => undefined)),
+        .map((other) => {
+          const p = path.resolve(baseDir, `${id}.${other}`);
+          return p.startsWith(baseDir) ? unlink(p).catch(() => undefined) : undefined;
+        }),
     );
 
     const icon = `/uploads/games/${filename}?v=${Date.now()}`;

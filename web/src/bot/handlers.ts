@@ -444,6 +444,8 @@ export async function handleLast5Input(ctx: Context, last5Raw: string) {
   let isSuccess = false;
   let failReason = "";
 
+  const isDev = process.env.NODE_ENV !== "production";
+
   if (session.depositId) {
     try {
       const deposit = await verifyDepositLast5(session.depositId, last5);
@@ -464,16 +466,21 @@ export async function handleLast5Input(ctx: Context, last5Raw: string) {
       failReason = err instanceof Error ? err.message : "Gateway verification failed.";
     }
   } else {
-    // Direct payment mode: 00000 triggers test decline, otherwise success
-    if (last5 === "00000") {
+    // Direct payment mode without gateway
+    if (isDev && last5 === "00000") {
       isSuccess = false;
       failReason = "Payment was declined.";
-    } else {
+    } else if (isDev) {
       isSuccess = true;
+    } else {
+      // In production, unverified direct payment requires manual admin review
+      isSuccess = false;
+      failReason = "Direct payment submitted - awaiting manual verification";
     }
   }
 
   let finalOrder: Order | null = null;
+  const isDirectProdSubmission = !session.depositId && !isDev;
   const topupResult = {
     attempted: false,
     ok: false,
@@ -501,6 +508,27 @@ export async function handleLast5Input(ctx: Context, last5Raw: string) {
   await updateStore(async (s) => {
     const order = s.orders.find((o) => o.id === orderId);
     if (!order) return;
+
+    if (isDirectProdSubmission) {
+      const txn: Transaction = {
+        id: `txn_${Date.now().toString(36)}`,
+        orderId: order.id,
+        userId: order.userId,
+        amountKs: order.amountKs,
+        method: order.paymentMethod,
+        txid,
+        status: "pending",
+        note: "Direct payment submission - awaiting admin review",
+        createdAt: new Date().toISOString(),
+      };
+      s.transactions.push(txn);
+      order.status = "processing";
+      order.txid = txid;
+      order.failReason = "Direct payment - awaiting admin verification";
+      order.completedAt = null;
+      finalOrder = order;
+      return;
+    }
 
     const txn: Transaction = {
       id: `txn_${Date.now().toString(36)}`,
@@ -540,6 +568,34 @@ export async function handleLast5Input(ctx: Context, last5Raw: string) {
     }
     finalOrder = order;
   });
+
+  if (isDirectProdSubmission && finalOrder) {
+    const fo = finalOrder as Order;
+    session.step = "idle";
+    session.pendingOrderId = undefined;
+    session.depositId = undefined;
+
+    await ctx.reply(
+      t("payment_paid_topup_pending", session.language, {
+        nickname: fo.nickname,
+        gameName: fo.gameName,
+        packageName: fo.packageName,
+        orderId: fo.id,
+        txid: fo.txid || txid,
+      }),
+      {
+        parse_mode: "Markdown",
+        reply_markup: mainMenuKeyboard(session.language),
+      },
+    );
+
+    await notifyAdminsManualTopup(
+      ctx.api,
+      fo,
+      "Direct payment submitted on Telegram - awaiting manual verification",
+    );
+    return;
+  }
 
   if (isSuccess && finalOrder) {
     const fo = finalOrder as Order;

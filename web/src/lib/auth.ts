@@ -84,6 +84,17 @@ export function jsonError(err: unknown, fallback = 400) {
     typeof err === "object" && err && "status" in err
       ? Number((err as { status: number }).status)
       : fallback;
-  const message = err instanceof Error ? err.message : "Request failed";
+  const isProd = process.env.NODE_ENV === "production";
+  const rawMessage = err instanceof Error ? err.message : "Request failed";
+
+  const message =
+    isProd && status >= 500
+      ? "An internal server error occurred. Please try again later."
+      : rawMessage;
+
+  if (status >= 500) {
+    console.error("[ServerError]", err);
+  }
+
   return Response.json({ error: message }, { status: Number.isFinite(status) ? status : fallback });
 }
