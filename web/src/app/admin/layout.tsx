@@ -32,8 +32,14 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     <div className="shell">
       <aside className="nav">
         <div className="nav-brand">
-          <div className="mark">CG</div>
-          Cloud Game Shop
+          <img
+            src="/logo.png"
+            alt="Cloud Game Shop"
+            width={32}
+            height={32}
+            style={{ borderRadius: 8, objectFit: "contain", flexShrink: 0 }}
+          />
+          <span>Cloud Game Shop</span>
         </div>
         {NAV.map((item) => (
           <Link

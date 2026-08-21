@@ -38,7 +38,13 @@ export default function AdminLoginPage() {
   return (
     <div className="auth-wrap">
       <form className="auth-card" onSubmit={onSubmit}>
-        <div className="mark">CG</div>
+        <img
+          src="/logo.png"
+          alt="Cloud Game Shop"
+          width={56}
+          height={56}
+          style={{ margin: "0 auto 12px", borderRadius: 12, display: "block", objectFit: "contain" }}
+        />
         <h1>Admin</h1>
         <p>Cloud Game Shop control panel</p>
         {error ? <p className="err">{error}</p> : null}
