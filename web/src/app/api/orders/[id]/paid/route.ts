@@ -1,8 +1,10 @@
 import { NextRequest } from "next/server";
 import { jsonError, requireUser } from "@/lib/auth";
 import { readStore, updateStore } from "@/lib/store";
+import { paySmileoneMlbb } from "@/lib/smileone";
+import { sendAdminManualTopupAlert } from "@/lib/telegram-alert";
 import { verifyWathanPayPayment } from "@/lib/wathanpay";
-import type { Transaction } from "@/lib/types";
+import type { Order, Transaction } from "@/lib/types";
 
 export async function POST(
   req: NextRequest,
@@ -45,7 +47,10 @@ export async function POST(
       return Response.json({ error: "Missing WathanPay transaction ID." }, { status: 400 });
     }
 
-    const result = await updateStore((s) => {
+    let topupFailedReason: string | null = null;
+    let finalOrder: Order | null = null;
+
+    const result = await updateStore(async (s) => {
       const order = s.orders.find((o) => o.id === id && o.userId === session.sub);
       if (!order) throw Object.assign(new Error("Order not found."), { status: 404 });
       if (order.status !== "awaiting_payment") {
@@ -53,13 +58,39 @@ export async function POST(
       }
 
       order.paymentMethod = "WathanPay";
-      order.status = "success";
       order.txid = txid;
-      order.failReason = null;
       order.completedAt = verification.paidAt || new Date().toISOString();
       order.payeeName = "WathanPay wallet";
       order.payeePhone = null;
       order.depositId = null;
+
+      // Attempt MLBB auto top-up
+      if (order.gameId === "mlbb") {
+        const pkg = s.packages.find((p) => p.id === order.packageId);
+        if (pkg?.smileGoodsId) {
+          const topup = await paySmileoneMlbb({
+            gameUserId: order.gameUserId,
+            zoneId: order.zoneId,
+            smileGoodsId: pkg.smileGoodsId,
+          });
+          if (topup.ok) {
+            order.status = "success";
+            order.failReason = null;
+          } else {
+            order.status = "processing";
+            order.failReason = `Auto-topup failed: ${topup.message}`;
+            topupFailedReason = topup.message;
+          }
+        } else {
+          order.status = "processing";
+          order.failReason = "Awaiting manual fulfillment";
+          topupFailedReason = "No SmileGoods ID configured";
+        }
+      } else {
+        order.status = "processing";
+        order.failReason = "Awaiting manual fulfillment";
+        topupFailedReason = "Manual delivery game";
+      }
 
       const txn: Transaction = {
         id: `txn_${Date.now().toString(36)}`,
@@ -73,8 +104,13 @@ export async function POST(
         createdAt: order.completedAt,
       };
       s.transactions.push(txn);
+      finalOrder = order;
       return { order, transaction: txn };
     });
+
+    if (topupFailedReason && finalOrder) {
+      void sendAdminManualTopupAlert(finalOrder, topupFailedReason);
+    }
 
     return Response.json(result);
   } catch (err) {

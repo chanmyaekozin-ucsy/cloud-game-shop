@@ -44,8 +44,12 @@ export const TEXTS = {
     my: "⏳ ငွေလွှဲပြေစာကို စစ်ဆေးနေပါသည်...",
   },
   payment_success: {
-    en: "🎉 *Payment Confirmed!*\n\nYour order has been verified and processed.\n\n👤 Player: *{nickname}*\n🎮 Game: *{gameName}*\n💎 Item: *{packageName}*\n🆔 Order ID: `{orderId}`\n🔖 TxID: `{txid}`\n\nThank you for choosing Cloud Game Shop!",
-    my: "🎉 *ငွေပေးချေမှု အောင်မြင်ပါသည်!*\n\nလူကြီးမင်း၏ Order ကို အောင်မြင်စွာ ဖြည့်သွင်းပြီးပါပြီ။\n\n👤 နာမည်: *{nickname}*\n🎮 ဂိမ်း: *{gameName}*\n💎 ပစ္စည်း: *{packageName}*\n🆔 Order ID: `{orderId}`\n🔖 TxID: `{txid}`\n\nCloud Game Shop ကို အသုံးပြုသည့်အတွက် ကျေးဇူးတင်ပါသည်။",
+    en: "🎉 *Top-up Successful!*\n\nYour diamonds have been delivered.\n\n👤 Player: *{nickname}*\n🎮 Game: *{gameName}*\n💎 Item: *{packageName}*\n🆔 Order ID: `{orderId}`\n🔖 TxID: `{txid}`\n\nThank you for choosing Cloud Game Shop!",
+    my: "🎉 *စိန်ထည့်သွင်းမှု အောင်မြင်ပါသည်!*\n\nလူကြီးမင်း၏ ဂိမ်းအကောင့်ထဲသို့ ပစ္စည်းများ အောင်မြင်စွာ ဖြည့်သွင်းပြီးပါပြီ။\n\n👤 နာမည်: *{nickname}*\n🎮 ဂိမ်း: *{gameName}*\n💎 ပစ္စည်း: *{packageName}*\n🆔 Order ID: `{orderId}`\n🔖 TxID: `{txid}`\n\nCloud Game Shop ကို အသုံးပြုသည့်အတွက် ကျေးဇူးတင်ပါသည်။",
+  },
+  payment_paid_topup_pending: {
+    en: "✅ *Payment Confirmed!*\n\n⚠️ *Delivery Notice:* Automated supplier top-up encountered an issue (Session/System). Our Admin has received your order and will manually fulfill your diamonds shortly.\n\n👤 Player: *{nickname}*\n🎮 Game: *{gameName}*\n💎 Item: *{packageName}*\n🆔 Order ID: `{orderId}`\n🔖 TxID: `{txid}`\n\nNeed urgent assistance? Tap /help to contact support.",
+    my: "✅ *ငွေပေးချေမှု အောင်မြင်စွာ လက်ခံရရှိပါသည်!*\n\n⚠️ *အသိပေးချက်:* Supplier Session/စနစ် အခက်အခဲကြောင့် ဂိမ်းထဲသို့ စိန်ကို အလိုအလျောက် ထည့်သွင်း၍ မရသေးပါ။\n\nလူကြီးမင်း၏ Order ကို Admin မှ လက်ခံရရှိထားပြီး မကြာမီ စစ်ဆေးကာ ဂိမ်းထဲသို့ ကိုယ်တိုင် ထည့်သွင်းပေးပါမည်။\n\n👤 နာမည်: *{nickname}*\n🎮 ဂိမ်း: *{gameName}*\n💎 ပစ္စည်း: *{packageName}*\n🆔 Order ID: `{orderId}`\n🔖 TxID: `{txid}`\n\nအကူအညီ လိုအပ်ပါက /help ဖြင့် ဆက်သွယ်နိုင်ပါသည်။",
   },
   payment_failed: {
     en: "❌ *Payment Verification Failed*\n\n{reason}\n\nPlease check the last 5 digits and try again, or tap /help to contact support.",

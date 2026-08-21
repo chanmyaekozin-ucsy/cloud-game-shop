@@ -12,6 +12,8 @@ export default function AdminPackagesPage() {
   const [error, setError] = useState("");
   const [name, setName] = useState("");
   const [priceKs, setPriceKs] = useState("");
+  const [smileCoin, setSmileCoin] = useState("");
+  const [smileGoodsId, setSmileGoodsId] = useState("");
   const [dragging, setDragging] = useState<string | null>(null);
   const listRef = useRef<Package[]>([]);
   listRef.current = packages;
@@ -81,10 +83,14 @@ export default function AdminPackagesPage() {
           name,
           displayName: name,
           priceKs: Number(priceKs),
+          smileCoin: Number(smileCoin) || 0,
+          smileGoodsId: smileGoodsId.trim(),
         }),
       });
       setName("");
       setPriceKs("");
+      setSmileCoin("");
+      setSmileGoodsId("");
       await reload();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Save failed");
@@ -117,6 +123,20 @@ export default function AdminPackagesPage() {
           value={priceKs}
           onChange={(e) => setPriceKs(e.target.value.replace(/\D/g, ""))}
         />
+        <input
+          className="box"
+          placeholder="Smile Coin"
+          value={smileCoin}
+          onChange={(e) => setSmileCoin(e.target.value.replace(/\D/g, ""))}
+          style={{ maxWidth: 105 }}
+        />
+        <input
+          className="box"
+          placeholder="Goods ID"
+          value={smileGoodsId}
+          onChange={(e) => setSmileGoodsId(e.target.value)}
+          style={{ maxWidth: 95 }}
+        />
         <button className="btn small" type="submit">
           Add
         </button>
@@ -131,6 +151,8 @@ export default function AdminPackagesPage() {
               <th>% off</th>
               <th>- Ks</th>
               <th>Sale</th>
+              <th>Smile Coin</th>
+              <th>Goods ID</th>
               <th>Featured</th>
               <th>Active</th>
             </tr>
@@ -251,6 +273,29 @@ export default function AdminPackagesPage() {
                 </td>
                 <td>
                   <b>{formatKs(salePriceKs(pkg))}</b>
+                </td>
+                <td>
+                  <input
+                    className="box"
+                    style={{ width: 80, fontFamily: "monospace" }}
+                    defaultValue={String(pkg.smileCoin || 0)}
+                    onBlur={(e) => {
+                      const n = Number(e.target.value);
+                      if (n !== (pkg.smileCoin || 0)) void patch(pkg.id, { smileCoin: n });
+                    }}
+                  />
+                </td>
+                <td>
+                  <input
+                    className="box"
+                    style={{ width: 80, fontFamily: "monospace" }}
+                    defaultValue={pkg.smileGoodsId || ""}
+                    onBlur={(e) => {
+                      if (e.target.value !== (pkg.smileGoodsId || "")) {
+                        void patch(pkg.id, { smileGoodsId: e.target.value });
+                      }
+                    }}
+                  />
                 </td>
                 <td>
                   <input

@@ -2,6 +2,8 @@ import { NextRequest } from "next/server";
 import { jsonError, requireUser } from "@/lib/auth";
 import { failedStatus, paidStatus, verifyDepositLast5 } from "@/lib/dominate";
 import { readStore, updateStore } from "@/lib/store";
+import { paySmileoneMlbb } from "@/lib/smileone";
+import { sendAdminManualTopupAlert } from "@/lib/telegram-alert";
 import { verifyWathanPayPayment } from "@/lib/wathanpay";
 import type { Order, Transaction } from "@/lib/types";
 
@@ -39,6 +41,9 @@ export async function POST(
       return Response.json({ error: "This order is already closed." }, { status: 409 });
     }
 
+    let topupFailedReason: string | null = null;
+    let finalOrder: Order | null = null;
+
     if (existing.depositId) {
       const deposit = await verifyDepositLast5(existing.depositId, last5);
       const status = String(deposit.status || "");
@@ -51,7 +56,7 @@ export async function POST(
         );
       }
 
-      const result = await updateStore((store) => {
+      const result = await updateStore(async (store) => {
         const order = store.orders.find((o) => o.id === id && o.userId === session.sub);
         if (!order) throw Object.assign(new Error("Order not found."), { status: 404 });
         const txn: Transaction = {
@@ -66,6 +71,7 @@ export async function POST(
           createdAt: new Date().toISOString(),
         };
         store.transactions.push(txn);
+
         if (failedStatus(status) || !paidStatus(status)) {
           finish(order, txn, {
             status: "failed",
@@ -87,15 +93,45 @@ export async function POST(
             message: `${order.paymentMethod} ${txid}`,
             txnStatus: "succeeded",
           });
+
+          if (order.gameId === "mlbb") {
+            const pkg = store.packages.find((p) => p.id === order.packageId);
+            if (pkg?.smileGoodsId) {
+              const topup = await paySmileoneMlbb({
+                gameUserId: order.gameUserId,
+                zoneId: order.zoneId,
+                smileGoodsId: pkg.smileGoodsId,
+              });
+              if (!topup.ok) {
+                order.status = "processing";
+                order.failReason = `Auto-topup failed: ${topup.message}`;
+                topupFailedReason = topup.message;
+              }
+            } else {
+              order.status = "processing";
+              order.failReason = "Awaiting manual fulfillment";
+              topupFailedReason = "No SmileGoods ID configured";
+            }
+          } else {
+            order.status = "processing";
+            order.failReason = "Awaiting manual fulfillment";
+            topupFailedReason = "Manual delivery game";
+          }
         }
+        finalOrder = order;
         return { order, transaction: txn };
       });
+
+      if (topupFailedReason && finalOrder) {
+        void sendAdminManualTopupAlert(finalOrder, topupFailedReason);
+      }
+
       return Response.json(result);
     }
 
     const verification = await verifyWathanPayPayment(id, existing.amountKs);
 
-    const result = await updateStore((store) => {
+    const result = await updateStore(async (store) => {
       const user = store.users.find((u) => u.id === session.sub);
       const order = store.orders.find((o) => o.id === id && o.userId === session.sub);
       if (!user || !order) {
@@ -149,8 +185,38 @@ export async function POST(
         message: "Paid with WathanPay",
         txnStatus: "succeeded",
       });
+
+      if (order.gameId === "mlbb") {
+        const pkg = store.packages.find((p) => p.id === order.packageId);
+        if (pkg?.smileGoodsId) {
+          const topup = await paySmileoneMlbb({
+            gameUserId: order.gameUserId,
+            zoneId: order.zoneId,
+            smileGoodsId: pkg.smileGoodsId,
+          });
+          if (!topup.ok) {
+            order.status = "processing";
+            order.failReason = `Auto-topup failed: ${topup.message}`;
+            topupFailedReason = topup.message;
+          }
+        } else {
+          order.status = "processing";
+          order.failReason = "Awaiting manual fulfillment";
+          topupFailedReason = "No SmileGoods ID configured";
+        }
+      } else {
+        order.status = "processing";
+        order.failReason = "Awaiting manual fulfillment";
+        topupFailedReason = "Manual delivery game";
+      }
+
+      finalOrder = order;
       return { order, transaction: txn };
     });
+
+    if (topupFailedReason && finalOrder) {
+      void sendAdminManualTopupAlert(finalOrder, topupFailedReason);
+    }
 
     return Response.json(result);
   } catch (err) {

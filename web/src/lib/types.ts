@@ -46,6 +46,7 @@ export type Package = {
   offPercent: number;
   offKs: number;
   smileGoodsId: string;
+  smileCoin: number;
   featured: boolean;
   isActive: boolean;
   sortOrder: number;

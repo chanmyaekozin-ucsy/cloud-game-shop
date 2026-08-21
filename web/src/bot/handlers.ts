@@ -3,7 +3,8 @@ import { formatKs, salePriceKs } from "@/lib/format";
 import { readStore, updateStore } from "@/lib/store";
 import { getGameById } from "@/games/shared/catalog";
 import { createDeposit, failedStatus, listPaymentMethods, paidStatus, verifyDepositLast5 } from "@/lib/dominate";
-import { paySmileoneMlbb } from "@/lib/smileone";
+import { paySmileoneMlbb, validateSmileonePackageAvailability } from "@/lib/smileone";
+import { loadShopEnv } from "@/lib/shop-env";
 import type { Order, Transaction } from "@/lib/types";
 import { DEFAULT_LANG, t } from "./i18n";
 import {
@@ -164,6 +165,15 @@ export async function handlePackageSelect(ctx: Context, pkgId: string) {
     return;
   }
 
+  // Pre-check Smile.one supplier balance availability
+  const check = await validateSmileonePackageAvailability(pkg);
+  if (!check.ok) {
+    await ctx.reply(`⚠️ ${check.error}`, {
+      reply_markup: mainMenuKeyboard(session.language),
+    });
+    return;
+  }
+
   session.packageId = pkgId;
   session.amountKs = salePriceKs(pkg);
 
@@ -288,6 +298,19 @@ export async function performAccountVerification(
 
 export async function handlePaymentSelect(ctx: Context) {
   const session = getSession(ctx.from!.id, ctx.chat!.id);
+  const store = await readStore();
+  const pkg = store.packages.find((p) => p.id === session.packageId);
+
+  if (pkg) {
+    const check = await validateSmileonePackageAvailability(pkg);
+    if (!check.ok) {
+      await ctx.reply(`⚠️ ${check.error}`, {
+        reply_markup: mainMenuKeyboard(session.language),
+      });
+      return;
+    }
+  }
+
   const methods = await listPaymentMethods();
 
   const options = methods.map((m) => ({ id: m.id, name: `${m.method} (${m.accountName || m.accountNumber})` }));
@@ -451,6 +474,29 @@ export async function handleLast5Input(ctx: Context, last5Raw: string) {
   }
 
   let finalOrder: Order | null = null;
+  const topupResult = {
+    attempted: false,
+    ok: false,
+    message: "",
+  };
+
+  if (isSuccess) {
+    const store = await readStore();
+    const orderBefore = store.orders.find((o) => o.id === orderId);
+    if (orderBefore && orderBefore.gameId === "mlbb") {
+      const pkg = store.packages.find((p) => p.id === orderBefore.packageId);
+      if (pkg?.smileGoodsId) {
+        topupResult.attempted = true;
+        const res = await paySmileoneMlbb({
+          gameUserId: orderBefore.gameUserId,
+          zoneId: orderBefore.zoneId,
+          smileGoodsId: pkg.smileGoodsId,
+        });
+        topupResult.ok = res.ok;
+        topupResult.message = res.message;
+      }
+    }
+  }
 
   await updateStore(async (s) => {
     const order = s.orders.find((o) => o.id === orderId);
@@ -469,26 +515,30 @@ export async function handleLast5Input(ctx: Context, last5Raw: string) {
     };
     s.transactions.push(txn);
 
-    order.status = isSuccess ? "success" : "failed";
-    order.txid = txid;
-    order.failReason = isSuccess ? null : failReason;
-    order.completedAt = new Date().toISOString();
-    finalOrder = order;
-
-    // Automated Smile.one topup fulfillment on success
-    if (isSuccess && order.gameId === "mlbb") {
-      const pkg = s.packages.find((p) => p.id === order.packageId);
-      if (pkg?.smileGoodsId) {
-        const topup = await paySmileoneMlbb({
-          gameUserId: order.gameUserId,
-          zoneId: order.zoneId,
-          smileGoodsId: pkg.smileGoodsId,
-        });
-        if (!topup.ok) {
-          order.failReason = `Auto-topup note: ${topup.message}`;
+    if (!isSuccess) {
+      order.status = "failed";
+      order.txid = txid;
+      order.failReason = failReason;
+      order.completedAt = new Date().toISOString();
+    } else {
+      order.txid = txid;
+      order.completedAt = new Date().toISOString();
+      if (topupResult.attempted) {
+        if (topupResult.ok) {
+          order.status = "success";
+          order.failReason = null;
+        } else {
+          // Payment received, but automated delivery failed -> processing for manual fulfillment
+          order.status = "processing";
+          order.failReason = `Auto-topup failed: ${topupResult.message}`;
         }
+      } else {
+        // Non-automated game or package -> processing for manual fulfillment
+        order.status = "processing";
+        order.failReason = "Awaiting manual fulfillment";
       }
     }
+    finalOrder = order;
   });
 
   if (isSuccess && finalOrder) {
@@ -497,19 +547,43 @@ export async function handleLast5Input(ctx: Context, last5Raw: string) {
     session.pendingOrderId = undefined;
     session.depositId = undefined;
 
-    await ctx.reply(
-      t("payment_success", session.language, {
-        nickname: fo.nickname,
-        gameName: fo.gameName,
-        packageName: fo.packageName,
-        orderId: fo.id,
-        txid: fo.txid || txid,
-      }),
-      {
-        parse_mode: "Markdown",
-        reply_markup: mainMenuKeyboard(session.language),
-      },
-    );
+    if (fo.status === "success") {
+      await ctx.reply(
+        t("payment_success", session.language, {
+          nickname: fo.nickname,
+          gameName: fo.gameName,
+          packageName: fo.packageName,
+          orderId: fo.id,
+          txid: fo.txid || txid,
+        }),
+        {
+          parse_mode: "Markdown",
+          reply_markup: mainMenuKeyboard(session.language),
+        },
+      );
+    } else {
+      // Payment confirmed but awaiting manual delivery (e.g. dead PHPSESSID or non-auto game)
+      await ctx.reply(
+        t("payment_paid_topup_pending", session.language, {
+          nickname: fo.nickname,
+          gameName: fo.gameName,
+          packageName: fo.packageName,
+          orderId: fo.id,
+          txid: fo.txid || txid,
+        }),
+        {
+          parse_mode: "Markdown",
+          reply_markup: mainMenuKeyboard(session.language),
+        },
+      );
+
+      // Alert admins & proofs group immediately!
+      await notifyAdminsManualTopup(
+        ctx.api,
+        fo,
+        topupResult.attempted ? topupResult.message : "Manual delivery required",
+      );
+    }
   } else {
     await ctx.reply(
       t("payment_failed", session.language, {
@@ -520,6 +594,48 @@ export async function handleLast5Input(ctx: Context, last5Raw: string) {
         reply_markup: cancelKeyboard(session.language),
       },
     );
+  }
+}
+
+export async function notifyAdminsManualTopup(
+  api: Context["api"],
+  order: Order,
+  reason: string,
+) {
+  loadShopEnv();
+  const proofGroupId = (process.env.PAYMENTS_PROOFS_GROUP_ID || "").trim();
+  const adminIdsStr = (process.env.TELEGRAM_ADMIN_IDS || "").trim();
+  const adminIds = adminIdsStr
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  const targets = new Set<string>();
+  if (proofGroupId) targets.add(proofGroupId);
+  for (const id of adminIds) targets.add(id);
+
+  const alertText = [
+    "⚠️ *[MANUAL TOP-UP REQUIRED]*",
+    `Payment confirmed, but automated delivery could not complete: \`${reason}\``,
+    "",
+    `🆔 *Order ID:* \`${order.id}\``,
+    `👤 *User / Nickname:* ${order.nickname || "—"}`,
+    `🎮 *Game:* ${order.gameName} (\`${order.gameUserId}\`${order.zoneId ? ` (${order.zoneId})` : ""})`,
+    `💎 *Package:* ${order.packageName}`,
+    `💰 *Amount:* ${order.amountKs.toLocaleString()} Ks`,
+    `💳 *Payment Method:* ${order.paymentMethod} (\`${order.txid || "—"}\`)`,
+    "",
+    "👉 Please manually fulfill this order or update the Smile.one session in the Admin panel.",
+  ].join("\n");
+
+  for (const target of targets) {
+    try {
+      await api.sendMessage(target, alertText, {
+        parse_mode: "Markdown",
+      });
+    } catch (err) {
+      console.warn(`[Alert] Failed to notify target ${target}:`, err);
+    }
   }
 }
 

@@ -14,6 +14,8 @@ export async function PATCH(
       priceKs: number;
       offPercent: number;
       offKs: number;
+      smileGoodsId: string;
+      smileCoin: number;
       featured: boolean;
       isActive: boolean;
     }>;
@@ -28,6 +30,8 @@ export async function PATCH(
         found.offPercent = Math.min(100, Math.max(0, Math.round(body.offPercent)));
       }
       if (typeof body.offKs === "number") found.offKs = Math.max(0, Math.round(body.offKs));
+      if (typeof body.smileGoodsId === "string") found.smileGoodsId = body.smileGoodsId.trim();
+      if (typeof body.smileCoin === "number") found.smileCoin = Math.max(0, body.smileCoin);
       if (typeof body.featured === "boolean") found.featured = body.featured;
       if (typeof body.isActive === "boolean") found.isActive = body.isActive;
       return found;

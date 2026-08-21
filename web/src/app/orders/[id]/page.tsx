@@ -20,6 +20,7 @@ function markKind(status: Order["status"]) {
   if (status === "success") return "ok";
   if (status === "failed" || status === "cancelled") return "bad";
   if (status === "awaiting_payment") return "wait";
+  if (status === "processing" || status === "paid") return "wait";
   return "muted";
 }
 
@@ -28,7 +29,7 @@ function titleFor(status: Order["status"]) {
   if (status === "failed") return "Order failed";
   if (status === "cancelled") return "Order cancelled";
   if (status === "awaiting_payment") return "Awaiting payment";
-  if (status === "processing" || status === "paid") return "Processing";
+  if (status === "processing" || status === "paid") return "Payment Confirmed (Fulfilling)";
   return orderStatusLabel(status);
 }
 
@@ -222,7 +223,24 @@ export default function OrderResultPage() {
             <p>
               {order.packageName} for {order.nickname || `${order.gameUserId}(${order.zoneId})`}
             </p>
-            {order.failReason ? <p className="err">{order.failReason}</p> : null}
+            {order.status === "processing" ? (
+              <div
+                style={{
+                  background: "#fff4dd",
+                  color: "#9a6b12",
+                  borderRadius: 12,
+                  padding: "10px 14px",
+                  marginTop: 12,
+                  fontSize: 13,
+                  textAlign: "left",
+                  lineHeight: 1.45,
+                }}
+              >
+                ℹ️ <strong>Payment Received:</strong> Automated top-up is processing or awaiting manual fulfillment. An admin has been notified and will fulfill your diamonds shortly.
+              </div>
+            ) : order.failReason ? (
+              <p className="err" style={{ marginTop: 10 }}>{order.failReason}</p>
+            ) : null}
           </div>
           <div className="pad">
             <div className="summary">

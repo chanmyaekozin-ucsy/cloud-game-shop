@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import path from "path";
 import { loadShopEnv } from "./shop-env";
 
@@ -16,6 +16,7 @@ export type SmileSessionMeta = {
   region: string;
   savedAt: string | null;
   hasPhpSessid: boolean;
+  phpsessid: string | null;
   path: string | null;
 };
 
@@ -114,6 +115,11 @@ async function fetchOrderPage(cookie: string, orderUrl: string) {
   }
 }
 
+function extractPhpsessid(cookieHeader: string): string | null {
+  const match = cookieHeader.match(/PHPSESSID=([^;\s]+)/i);
+  return match?.[1] || null;
+}
+
 export async function getSmileSupplierStatus(): Promise<SmileSupplierStatus> {
   const orderUrl = smileOrderUrl();
   const checkedAt = new Date().toISOString();
@@ -127,6 +133,7 @@ export async function getSmileSupplierStatus(): Promise<SmileSupplierStatus> {
         region: region(),
         savedAt: null,
         hasPhpSessid: false,
+        phpsessid: null,
         path: smileSessionPath(),
       },
       balance: null,
@@ -137,13 +144,15 @@ export async function getSmileSupplierStatus(): Promise<SmileSupplierStatus> {
   }
 
   const cookie = String(loaded.data.cookie_header || "").trim();
-  const hasPhpSessid = cookie.includes("PHPSESSID=");
+  const phpsessid = extractPhpsessid(cookie);
+  const hasPhpSessid = Boolean(phpsessid);
   const session: SmileSessionMeta = {
     present: Boolean(cookie),
     valid: false,
     region: String(loaded.data.region || region()),
     savedAt: String(loaded.data.saved_at || "") || null,
     hasPhpSessid,
+    phpsessid,
     path: loaded.path,
   };
 
@@ -209,6 +218,90 @@ export async function getSmileSupplierStatus(): Promise<SmileSupplierStatus> {
       checkedAt,
     };
   }
+}
+
+export async function updateSmileSession(input: {
+  phpsessid?: string;
+  cookieHeader?: string;
+  region?: string;
+}): Promise<{ ok: boolean; message: string; supplier: SmileSupplierStatus }> {
+  loadShopEnv();
+  const targetPath =
+    smileSessionPath() ||
+    path.join(process.cwd(), "..", ".data", "smileone_session.json");
+
+  let existingData: SessionFile & {
+    cookies?: Array<{ name: string; value: string; [k: string]: unknown }>;
+  } = {};
+
+  if (existsSync(targetPath)) {
+    try {
+      existingData = JSON.parse(readFileSync(targetPath, "utf8"));
+    } catch {
+      existingData = {};
+    }
+  }
+
+  let cookieHeader = (input.cookieHeader ?? existingData.cookie_header ?? "").trim();
+  const reg = (input.region ?? existingData.region ?? region()).trim().toLowerCase() || "br";
+
+  if (input.phpsessid !== undefined && input.phpsessid.trim() !== "") {
+    const rawVal = input.phpsessid.trim();
+    // If the input is full cookie header copied from browser DevTools
+    if (rawVal.includes(";") && rawVal.includes("=")) {
+      cookieHeader = rawVal;
+    } else {
+      const match = rawVal.match(/PHPSESSID=([^;\s]+)/i);
+      const cleanToken = match ? match[1] : rawVal.replace(/^PHPSESSID=/i, "").split(";")[0].trim();
+
+      if (cleanToken) {
+        if (cookieHeader.includes("PHPSESSID=")) {
+          cookieHeader = cookieHeader.replace(/PHPSESSID=[^;]+/i, `PHPSESSID=${cleanToken}`);
+        } else {
+          cookieHeader = cookieHeader ? `${cookieHeader}; PHPSESSID=${cleanToken}` : `PHPSESSID=${cleanToken}`;
+        }
+
+        const cookiesList = Array.isArray(existingData.cookies) ? [...existingData.cookies] : [];
+        const phpIdx = cookiesList.findIndex((c) => c.name === "PHPSESSID");
+        if (phpIdx >= 0) {
+          cookiesList[phpIdx] = { ...cookiesList[phpIdx], value: cleanToken };
+        } else {
+          cookiesList.push({
+            name: "PHPSESSID",
+            value: cleanToken,
+            domain: "www.smile.one",
+            path: "/",
+            expires: -1,
+            httpOnly: true,
+            secure: false,
+            sameSite: "Lax",
+          });
+        }
+        existingData.cookies = cookiesList;
+      }
+    }
+  } else if (input.cookieHeader !== undefined && input.cookieHeader.trim() !== "") {
+    cookieHeader = input.cookieHeader.trim();
+  }
+
+  existingData.cookie_header = cookieHeader;
+  existingData.region = reg;
+  existingData.saved_at = new Date().toISOString();
+
+  mkdirSync(path.dirname(targetPath), { recursive: true });
+  writeFileSync(targetPath, JSON.stringify(existingData, null, 2) + "\n", "utf8");
+
+  const supplier = await getSmileSupplierStatus();
+  const isOk = Boolean(supplier.session.valid && supplier.balance);
+  return {
+    ok: isOk,
+    message: isOk
+      ? "Smile.one session saved and verified successfully!"
+      : supplier.error
+        ? `Saved to ${path.basename(targetPath)}, but verification returned: ${supplier.error}`
+        : "Smile.one session saved successfully.",
+    supplier,
+  };
 }
 
 function extractCsrf(html: string): string | null {
@@ -328,4 +421,68 @@ export async function paySmileoneMlbb(input: {
     return { ok: false, message: err instanceof Error ? err.message : "Top-up request failed." };
   }
 }
+
+export const GOODS_COIN_MAP: Record<string, number> = {
+  "16642": 37,
+  "26555": 20,
+  "26556": 100,
+  "33": 200,
+  "22590": 20,
+  "22591": 60,
+  "22592": 100,
+  "22593": 200,
+  "13": 31,
+  "23": 62,
+  "25": 93,
+  "26": 250,
+  "27": 750,
+  "28": 1250,
+  "29": 1880,
+  "30": 3130,
+};
+
+export async function validateSmileonePackageAvailability(pkg: {
+  gameId?: string;
+  smileGoodsId?: string;
+  smileCoin?: number;
+}): Promise<{ ok: boolean; error?: string; reason?: "check_failed" | "not_enough" }> {
+  // Only apply to MLBB / packages with smileGoodsId
+  const isMlbb = pkg.gameId === "game_mlbb" || pkg.gameId === "mlbb";
+  if (!isMlbb && !pkg.smileGoodsId) {
+    return { ok: true };
+  }
+  if (!pkg.smileGoodsId && (!pkg.smileCoin || pkg.smileCoin <= 0)) {
+    return { ok: true };
+  }
+
+  const supplier = await getSmileSupplierStatus();
+  if (supplier.error || !supplier.session.valid || !supplier.balance) {
+    return {
+      ok: false,
+      reason: "check_failed",
+      error: "Auto စနစ် မရနိုင်သေးပါ။ Admin ထံမှ တိုက်ရိုက်ဝယ်ယူနိုင်ပါတယ်။",
+    };
+  }
+
+  const cleanBalStr = supplier.balance.replace(/[^\d.]/g, "");
+  const numericBalance = parseFloat(cleanBalStr) || 0;
+  const requiredCoins =
+    Number(pkg.smileCoin) > 0
+      ? Number(pkg.smileCoin)
+      : pkg.smileGoodsId
+        ? GOODS_COIN_MAP[pkg.smileGoodsId] || 0
+        : 0;
+
+  if (requiredCoins > 0 && numericBalance < requiredCoins) {
+    return {
+      ok: false,
+      reason: "not_enough",
+      error:
+        "ဤ Package ကိုဝယ်ယူလို့မရနိုင်သေးပါ။ အခြား Package များကို ရွေးချယ်ပေးပါ။ သို့မဟုတ် Admin ထံမှ တိုက်ရိုက်ဝယ်ယူနိုင်ပါတယ်။",
+    };
+  }
+
+  return { ok: true };
+}
+
 

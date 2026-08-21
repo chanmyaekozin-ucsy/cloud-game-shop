@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { jsonError, requireUser } from "@/lib/auth";
 import { salePriceKs } from "@/lib/format";
 import { readStore, updateStore } from "@/lib/store";
+import { validateSmileonePackageAvailability } from "@/lib/smileone";
 import type { Order } from "@/lib/types";
 
 export async function GET() {
@@ -28,6 +29,21 @@ export async function POST(req: NextRequest) {
       nickname?: string;
       region?: string;
     };
+
+    const preview = await readStore();
+    const game = preview.games.find((g) => g.id === body.gameId && g.isActive);
+    const pkg = preview.packages.find(
+      (p) => p.id === body.packageId && p.gameId === game?.id && p.isActive,
+    );
+    if (!game || !pkg) {
+      return Response.json({ error: "Package not found." }, { status: 404 });
+    }
+
+    const check = await validateSmileonePackageAvailability(pkg);
+    if (!check.ok) {
+      return Response.json({ error: check.error }, { status: 400 });
+    }
+
     const order = await updateStore((store) => {
       const user = store.users.find((u) => u.id === session.sub);
       if (!user) {

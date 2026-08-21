@@ -24,6 +24,8 @@ export async function POST(req: NextRequest) {
       name?: string;
       displayName?: string;
       priceKs?: number;
+      smileGoodsId?: string;
+      smileCoin?: number;
       featured?: boolean;
       isActive?: boolean;
     };
@@ -38,7 +40,8 @@ export async function POST(req: NextRequest) {
         priceKs: Math.round(Number(body.priceKs) || 0),
         offPercent: 0,
         offKs: 0,
-        smileGoodsId: "",
+        smileGoodsId: String(body.smileGoodsId ?? "").trim(),
+        smileCoin: Number(body.smileCoin) || 0,
         featured: Boolean(body.featured),
         isActive: body.isActive !== false,
         sortOrder: store.packages.filter((p) => p.gameId === game.id).length,

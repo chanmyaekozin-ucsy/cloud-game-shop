@@ -18,6 +18,7 @@ export const packages: Package[] = rows.map(([name, displayName, priceKs, featur
   displayName,
   priceKs,
   smileGoodsId: "",
+  smileCoin: 0,
   featured,
   isActive: true,
   sortOrder: i,

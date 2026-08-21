@@ -259,6 +259,11 @@ export function Checkout({ slug }: { slug: string }) {
                   onClick={() => setPkg(item)}
                 >
                   <span className="name">{item.displayName}</span>
+                  {item.smileCoin && item.smileCoin > 0 ? (
+                    <span style={{ fontSize: 11, color: "var(--muted, #888)", display: "block", marginTop: 2 }}>
+                      🪙 {item.smileCoin} Smile Coins
+                    </span>
+                  ) : null}
                   {hasDiscount(item) ? <span className="pkg-off">{discountLabel(item)}</span> : null}
                   <span className="price">
                     {hasDiscount(item) ? <span className="was">{formatKs(item.priceKs)}</span> : null}

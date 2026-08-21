@@ -4,7 +4,7 @@
     "package_name": "Weekly Pass",
     "original_package_name": "Passe Semanal de Diamante",
     "price": "6500 MMK",
-    "smile_coin": "",
+    "smile_coin": "37",
     "smile_goods_id": "16642",
     "note": ""
   },
@@ -13,7 +13,7 @@
     "package_name": "Weekly Elite Bundle",
     "original_package_name": "Pacote Semanal Elite (Disponível Uma Vez Por Semana)",
     "price": "3500 MMK",
-    "smile_coin": "",
+    "smile_coin": "20",
     "smile_goods_id": "26555",
     "note": ""
   },
@@ -22,7 +22,7 @@
     "package_name": "Monthly Epic Bundle",
     "original_package_name": "Pacote Mensal Épico (Disponível Uma Vez Por Mês)",
     "price": "17500 MMK",
-    "smile_coin": "",
+    "smile_coin": "100",
     "smile_goods_id": "26556",
     "note": ""
   },
@@ -31,7 +31,7 @@
     "package_name": "Twilight Pass",
     "original_package_name": "Passagem do crepúsculo",
     "price": "36000 MMK",
-    "smile_coin": "",
+    "smile_coin": "200",
     "smile_goods_id": "33",
     "note": ""
   },
@@ -40,7 +40,7 @@
     "package_name": "Diamond×50 +5",
     "original_package_name": "Diamond×50 +5",
     "price": "3500 MMK",
-    "smile_coin": "",
+    "smile_coin": "20",
     "smile_goods_id": "22590",
     "note": ""
   },
@@ -49,7 +49,7 @@
     "package_name": "Diamond×150 +15",
     "original_package_name": "Diamond×150 +15",
     "price": "10500 MMK",
-    "smile_coin": "",
+    "smile_coin": "60",
     "smile_goods_id": "22591",
     "note": ""
   },
@@ -58,7 +58,7 @@
     "package_name": "Diamond×250 +25",
     "original_package_name": "Diamond×250 +25",
     "price": "16900 MMK",
-    "smile_coin": "",
+    "smile_coin": "100",
     "smile_goods_id": "22592",
     "note": ""
   },
@@ -67,7 +67,7 @@
     "package_name": "Diamond×500 +65",
     "original_package_name": "Diamond×500 +65",
     "price": "34500 MMK",
-    "smile_coin": "",
+    "smile_coin": "200",
     "smile_goods_id": "22593",
     "note": ""
   },
@@ -76,7 +76,7 @@
     "package_name": "Diamond×78 +8",
     "original_package_name": "Diamond×78 +8",
     "price": "5500 MMK",
-    "smile_coin": "",
+    "smile_coin": "31",
     "smile_goods_id": "13",
     "note": ""
   },
@@ -85,7 +85,7 @@
     "package_name": "Diamond×156 +16",
     "original_package_name": "Diamond×156 +16",
     "price": "11000 MMK",
-    "smile_coin": "",
+    "smile_coin": "62",
     "smile_goods_id": "23",
     "note": ""
   },
@@ -94,7 +94,7 @@
     "package_name": "Diamond×234 +23",
     "original_package_name": "Diamond×234 +23",
     "price": "15900 MMK",
-    "smile_coin": "",
+    "smile_coin": "93",
     "smile_goods_id": "25",
     "note": ""
   },
@@ -103,7 +103,7 @@
     "package_name": "Diamond×625 +81",
     "original_package_name": "Diamond×625 +81",
     "price": "43000 MMK",
-    "smile_coin": "",
+    "smile_coin": "250",
     "smile_goods_id": "26",
     "note": ""
   },
@@ -112,7 +112,7 @@
     "package_name": "Diamond×1860 +335",
     "original_package_name": "Diamond×1860 +335",
     "price": "130500 MMK",
-    "smile_coin": "",
+    "smile_coin": "750",
     "smile_goods_id": "27",
     "note": ""
   },
@@ -121,7 +121,7 @@
     "package_name": "Diamond×3099 +589",
     "original_package_name": "Diamond×3099 +589",
     "price": "218000 MMK",
-    "smile_coin": "",
+    "smile_coin": "1250",
     "smile_goods_id": "28",
     "note": ""
   },
@@ -130,7 +130,7 @@
     "package_name": "Diamond×4649 +883",
     "original_package_name": "Diamond×4649 +883",
     "price": "329000 MMK",
-    "smile_coin": "",
+    "smile_coin": "1880",
     "smile_goods_id": "29",
     "note": ""
   },
@@ -139,7 +139,7 @@
     "package_name": "Diamond×7740 +1548",
     "original_package_name": "Diamond×7740 +1548",
     "price": "547000 MMK",
-    "smile_coin": "",
+    "smile_coin": "3130",
     "smile_goods_id": "30",
     "note": ""
   }

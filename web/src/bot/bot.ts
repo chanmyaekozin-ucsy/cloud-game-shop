@@ -20,6 +20,7 @@ import {
 } from "./handlers";
 import { cancelKeyboard } from "./keyboards";
 import { t } from "./i18n";
+import { startBalanceMonitor } from "./monitor";
 
 export function getBotToken() {
   loadShopEnv();
@@ -171,6 +172,11 @@ export async function startBot() {
           { command: "cancel", description: "Cancel Order (ပယ်ဖျက်မည်)" },
         ])
         .catch(() => {});
+
+      // Launch Smile.one balance monitor loop in background
+      startBalanceMonitor(bot).catch((err) => {
+        console.error("Balance monitor failed:", err);
+      });
     },
   });
 }
