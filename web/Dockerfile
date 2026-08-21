@@ -12,6 +12,7 @@ RUN npm run build
 
 FROM node:22-alpine AS runner
 WORKDIR /app
+RUN apk add --no-cache su-exec
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
     PORT=3000 \
@@ -21,11 +22,7 @@ COPY --from=builder --chown=node:node /app/.next/standalone ./
 COPY --from=builder --chown=node:node /app/.next/static ./.next/static
 COPY --from=builder --chown=node:node /app/dist ./dist
 COPY --from=builder --chown=node:node /app/scripts/start-all.sh ./start.sh
-RUN chmod +x ./start.sh && \
-    mkdir -p /app/data /app/data/uploads/games /app/.data && \
-    chown -R node:node /app/data /app/data/uploads /app/.data
-
-USER node
+RUN chmod +x ./start.sh
 
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \

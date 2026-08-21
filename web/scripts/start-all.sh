@@ -1,6 +1,16 @@
 #!/bin/sh
 set -e
 
+# Fix volume permissions on mounted directories at runtime
+if [ "$(id -u)" = "0" ]; then
+  mkdir -p /app/data /app/data/uploads/games /app/.data
+  chown -R node:node /app/data /app/.data 2>/dev/null || true
+  chmod -R 775 /app/data /app/.data 2>/dev/null || true
+  if command -v su-exec >/dev/null 2>&1; then
+    exec su-exec node "$0" "$@"
+  fi
+fi
+
 if [ -n "$BOT_TOKEN" ] || [ -n "$TELEGRAM_BOT_TOKEN" ]; then
   echo "[Startup] Launching Telegram bot in background..."
   if [ -f "dist/bot.js" ]; then
