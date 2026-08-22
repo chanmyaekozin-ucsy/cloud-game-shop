@@ -3,6 +3,7 @@ import { jsonError, setSessionCookie } from "@/lib/auth";
 import { hashPin, hashToken } from "@/lib/hash";
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit";
 import { updateStore } from "@/lib/store";
+import { verifyWathanPayAuth } from "@/lib/wathanpay";
 import type { MiniAppUser } from "@/types/wathanpay";
 
 export async function POST(req: NextRequest) {
@@ -12,16 +13,53 @@ export async function POST(req: NextRequest) {
     if (!rl.ok) return rateLimitResponse(rl.resetAt);
 
     const body = (await req.json().catch(() => ({}))) as {
+      authData?: string;
       accessToken?: string;
       user?: MiniAppUser;
     };
 
+    const authDataStr = String(body.authData ?? "").trim();
     const token = String(body.accessToken ?? "").trim();
-    const wpUser = body.user;
+    const clientUser = body.user;
 
+    let verifiedUser: {
+      id: string;
+      name: string;
+      phone?: string;
+      maskedPhone?: string;
+      avatarUrl?: string | null;
+    } | null = null;
+
+    if (authDataStr) {
+      const authVerification = verifyWathanPayAuth(authDataStr);
+      if (!authVerification.ok || !authVerification.user) {
+        return Response.json(
+          { error: authVerification.error || "Cryptographic authData verification failed." },
+          { status: 401 }
+        );
+      }
+      verifiedUser = authVerification.user;
+    }
+
+    const secretConfigured = Boolean(
+      process.env.WATHANPAY_MERCHANT_SECRET ||
+      process.env.WATHANPAY_SECRET_KEY ||
+      process.env.WATHANPAY_API_KEY
+    );
+    const isProd = process.env.NODE_ENV === "production";
+
+    // In production with merchant secret configured, require cryptographic authData
+    if (!verifiedUser && isProd && secretConfigured) {
+      return Response.json(
+        { error: "Cryptographic authData is required to authenticate WathanPay session." },
+        { status: 401 }
+      );
+    }
+
+    const rawId = verifiedUser?.id || clientUser?.id;
     let sub = "";
-    if (wpUser?.id && String(wpUser.id).trim().length > 0) {
-      const sanitizedId = String(wpUser.id).trim().replace(/[^a-zA-Z0-9_-]/g, "");
+    if (rawId && String(rawId).trim().length > 0) {
+      const sanitizedId = String(rawId).trim().replace(/[^a-zA-Z0-9_-]/g, "");
       sub = `wp_${sanitizedId}`;
     } else if (token && token.length >= 8 && token.length <= 512) {
       sub = `wp_${hashToken(token)}`;
@@ -34,10 +72,17 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const isProd = process.env.NODE_ENV === "production";
-    const userName = (wpUser?.name && String(wpUser.name).trim()) || "WathanPay User";
-    const userPhone = (wpUser?.phone && String(wpUser.phone).trim()) || "";
-    const userAvatar = wpUser?.avatarUrl || null;
+    const userName =
+      (verifiedUser?.name && String(verifiedUser.name).trim()) ||
+      (clientUser?.name && String(clientUser.name).trim()) ||
+      "WathanPay User";
+    const userPhone =
+      (verifiedUser?.maskedPhone && String(verifiedUser.maskedPhone).trim()) ||
+      (verifiedUser?.phone && String(verifiedUser.phone).trim()) ||
+      (clientUser?.maskedPhone && String(clientUser.maskedPhone).trim()) ||
+      (clientUser?.phone && String(clientUser.phone).trim()) ||
+      "";
+    const userAvatar = verifiedUser?.avatarUrl || clientUser?.avatarUrl || null;
 
     const user = await updateStore((store) => {
       let found = store.users.find((u) => u.wathanpaySub === sub || u.id === sub);
@@ -55,11 +100,15 @@ export async function POST(req: NextRequest) {
         };
         store.users.push(found);
       } else {
-        // Update user profile info if newly shared
-        if (userName && userName !== "WathanPay User" && (!found.name || found.name === "WathanPay" || found.name === "WathanPay User")) {
+        // Update user profile info if newly shared or updated
+        if (
+          userName &&
+          userName !== "WathanPay User" &&
+          (!found.name || found.name === "WathanPay" || found.name === "WathanPay User")
+        ) {
           found.name = userName;
         }
-        if (userPhone && !found.phone) {
+        if (userPhone && (!found.phone || found.phone !== userPhone)) {
           found.phone = userPhone;
         }
         if (userAvatar && !found.avatarUrl) {

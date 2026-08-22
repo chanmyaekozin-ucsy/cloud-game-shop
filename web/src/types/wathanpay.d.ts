@@ -2,6 +2,7 @@ export interface MiniAppUser {
   id?: string;
   name?: string;
   phone?: string;
+  maskedPhone?: string;
   avatarUrl?: string | null;
 }
 
@@ -23,6 +24,9 @@ export interface WathanPayPayParams {
 
   /** Optional tracking request ID */
   requestId?: string;
+
+  /** Optional Publishable Key (wp_live_pk_...) */
+  publishableKey?: string;
 }
 
 export interface WathanPayPayResult {
@@ -48,6 +52,12 @@ export type PayResult = WathanPayPayResult;
 export interface WathanPaySDK {
   /** true when running inside the WathanPay native container */
   ready?: boolean;
+
+  /** Cryptographically signed HMAC-SHA256 string for zero-trust backend authentication */
+  authData?: string;
+
+  /** Helper function returning the authData string */
+  getAuthData?: () => string;
 
   /** Logged-in user safe public profile */
   user?: MiniAppUser | null;

@@ -344,6 +344,24 @@ export default function OrderResultPage() {
 
             {awaiting && payStep === "confirm" ? (
               <>
+                {order.qrPngBase64 ? (
+                  <div style={{ textAlign: "center", margin: "12px 0 16px" }}>
+                    <img
+                      src={order.qrPngBase64.startsWith("data:") ? order.qrPngBase64 : `data:image/png;base64,${order.qrPngBase64}`}
+                      alt="Scan QR to Pay"
+                      style={{
+                        width: 180,
+                        height: 180,
+                        borderRadius: 12,
+                        border: "1px solid var(--line, #e2e8f0)",
+                        display: "inline-block",
+                      }}
+                    />
+                    <p className="hint" style={{ marginTop: 6, fontSize: 12 }}>
+                      Scan QR with {order.paymentMethod || "Wallet"} app
+                    </p>
+                  </div>
+                ) : null}
                 {order.payeePhone ? (
                   <button className="btn ghost" type="button" onClick={() => void copyPhone()} style={{ marginBottom: 14 }}>
                     {copied ? "Copied" : "Copy number"}

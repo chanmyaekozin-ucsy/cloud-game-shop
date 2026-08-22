@@ -55,9 +55,25 @@ export async function POST(
     let finalOrder: Order | null = null;
 
     if (existing.depositId) {
-      const deposit = await verifyDepositLast5(existing.depositId, last5);
+      let deposit;
+      try {
+        deposit = await verifyDepositLast5(existing.depositId, last5);
+      } catch (err: unknown) {
+        const errObj = err as { status?: number; isProviderBusy?: boolean };
+        if (errObj?.status === 503 || errObj?.isProviderBusy) {
+          return Response.json(
+            {
+              error: "Payment provider is currently busy or synchronizing. Please wait a few seconds and try confirming again.",
+              retry: true,
+            },
+            { status: 503 },
+          );
+        }
+        throw err;
+      }
+
       const status = String(deposit.status || "");
-      const txid = String(deposit.bank_trx_id || deposit.trx_id || last5);
+      const txid = String(deposit.matched_order_id || deposit.bank_trx_id || deposit.trx_id || last5);
 
       if (status === "pending") {
         return Response.json(

@@ -26,6 +26,21 @@ export const WathanPay: WathanPaySDK = {
     return this.user ?? null;
   },
 
+  get authData(): string {
+    if (typeof window === "undefined") return "";
+    return (
+      window.WathanPay?.authData ||
+      (typeof window.WathanPay?.getAuthData === "function"
+        ? window.WathanPay.getAuthData()
+        : "") ||
+      ""
+    );
+  },
+
+  getAuthData(): string {
+    return this.authData || "";
+  },
+
   get accessToken() {
     if (typeof window === "undefined") return undefined;
     return window.WathanPay?.accessToken;
@@ -54,6 +69,10 @@ export const WathanPay: WathanPaySDK = {
         title: params.title,
         subtitle: params.subtitle,
         requestId: params.requestId,
+        publishableKey:
+          params.publishableKey ||
+          process.env.NEXT_PUBLIC_WATHANPAY_PUBLISHABLE_KEY ||
+          undefined,
       };
       return await window.WathanPay.pay(normalizedParams);
     } catch (err) {

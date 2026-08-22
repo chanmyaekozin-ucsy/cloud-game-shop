@@ -51,9 +51,13 @@ export function Checkout({ slug }: { slug: string }) {
   const [methods, setMethods] = useState<PayMethod[]>([]);
   const [selected, setSelected] = useState<PayMethod | null>(null);
   const [orderId, setOrderId] = useState("");
-  const [payee, setPayee] = useState<{ name: string | null; phone: string | null; method: string } | null>(
-    null,
-  );
+  const [payee, setPayee] = useState<{
+    name: string | null;
+    phone: string | null;
+    method: string;
+    qrPngBase64?: string | null;
+    qrPayload?: string | null;
+  } | null>(null);
   const [last5, setLast5] = useState("");
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState("");
@@ -191,15 +195,30 @@ export function Checkout({ slug }: { slug: string }) {
     try {
       const id = await createOrder();
       const paid = await api<{
-        order: { payeeName: string | null; payeePhone: string | null; paymentMethod: string };
+        order: {
+          payeeName: string | null;
+          payeePhone: string | null;
+          paymentMethod: string;
+          qrPngBase64?: string | null;
+          qrPayload?: string | null;
+        };
+        payee?: {
+          name: string | null;
+          phone: string | null;
+          method: string;
+          qrPngBase64?: string | null;
+          qrPayload?: string | null;
+        };
       }>(`/api/orders/${id}/pay`, {
         method: "POST",
         body: JSON.stringify({ accountId: selected.id }),
       });
       setPayee({
-        name: paid.order.payeeName,
-        phone: paid.order.payeePhone,
-        method: paid.order.paymentMethod || selected.method,
+        name: paid.payee?.name || paid.order.payeeName,
+        phone: paid.payee?.phone || paid.order.payeePhone,
+        method: paid.payee?.method || paid.order.paymentMethod || selected.method,
+        qrPngBase64: paid.payee?.qrPngBase64 || paid.order.qrPngBase64 || null,
+        qrPayload: paid.payee?.qrPayload || paid.order.qrPayload || null,
       });
       setStep("confirm");
     } catch (err) {
@@ -456,6 +475,24 @@ export function Checkout({ slug }: { slug: string }) {
                 </div>
               ) : null}
             </div>
+            {payee?.qrPngBase64 ? (
+              <div style={{ textAlign: "center", margin: "12px 0 16px" }}>
+                <img
+                  src={payee.qrPngBase64.startsWith("data:") ? payee.qrPngBase64 : `data:image/png;base64,${payee.qrPngBase64}`}
+                  alt="Scan QR to Pay"
+                  style={{
+                    width: 180,
+                    height: 180,
+                    borderRadius: 12,
+                    border: "1px solid var(--line, #e2e8f0)",
+                    display: "inline-block",
+                  }}
+                />
+                <p className="hint" style={{ marginTop: 6, fontSize: 12 }}>
+                  Scan QR with {payee.method || "Wallet"} app
+                </p>
+              </div>
+            ) : null}
             {payee?.phone ? (
               <button className="btn ghost" type="button" onClick={() => void copyPhone()} style={{ marginBottom: 14 }}>
                 {copied ? "Copied" : "Copy number"}

@@ -55,10 +55,17 @@ export async function POST(
       return found;
     });
 
+    const host = req.headers.get("host");
+    const protocol = req.headers.get("x-forwarded-proto") || "https";
+    const callbackUrl = host && !host.includes("localhost") && !host.includes("127.0.0.1")
+      ? `${protocol}://${host}/api/webhooks/gateway`
+      : undefined;
+
     const deposit = await createDeposit({
       accountId: method.id,
       amountKs: preview.amountKs,
       orderId: preview.id,
+      callbackUrl,
     });
     const payee = deposit.payee || {};
     const order = await updateStore((store) => {
@@ -67,6 +74,8 @@ export async function POST(
       found.depositId = deposit.id;
       found.payeeName = String(payee.display_name || found.payeeName || method.accountName);
       found.payeePhone = String(payee.msisdn || found.payeePhone || method.accountNumber);
+      found.qrPngBase64 = deposit.qr_png_base64 || null;
+      found.qrPayload = deposit.qr_payload || null;
       return found;
     });
 
@@ -76,6 +85,8 @@ export async function POST(
         name: order.payeeName,
         phone: order.payeePhone,
         method: method.method,
+        qrPngBase64: order.qrPngBase64,
+        qrPayload: order.qrPayload,
       },
     });
   } catch (err) {

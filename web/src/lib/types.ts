@@ -72,6 +72,8 @@ export type Order = {
   depositId: string | null;
   payeeName: string | null;
   payeePhone: string | null;
+  qrPngBase64?: string | null;
+  qrPayload?: string | null;
   txid: string | null;
   failReason: string | null;
   createdAt: string;

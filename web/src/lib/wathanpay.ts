@@ -1,7 +1,138 @@
+import crypto from "crypto";
+
 /**
- * WathanPay Backend Verification (Server-Side)
- * Official ledger verification for Mini Apps & Merchants according to SDK_INTEGRATION.md
+ * WathanPay Backend Verification & Cryptographic Auth (Server-Side)
+ * Official ledger verification & HMAC-SHA256 user authentication for Mini Apps & Merchants
+ * according to SDK_INTEGRATION.md
  */
+
+export interface MiniAppVerifiedUser {
+  id: string;
+  name: string;
+  phone?: string;
+  maskedPhone?: string;
+  avatarUrl?: string | null;
+}
+
+export interface WathanPayAuthResult {
+  ok: boolean;
+  user?: MiniAppVerifiedUser;
+  error?: string;
+  authDate?: number;
+}
+
+/**
+ * Cryptographically verifies WathanPay `authData` using the Merchant Secret Key (HMAC-SHA256).
+ *
+ * Algorithm:
+ * 1. Parse URL-encoded query parameters.
+ * 2. Extract and remove the `hash` parameter.
+ * 3. Sort all remaining keys alphabetically.
+ * 4. Construct check string: `key1=value1\nkey2=value2\n...`.
+ * 5. Compute HMAC-SHA256 using Merchant Secret Key.
+ * 6. Perform timing-safe constant-time equality check.
+ * 7. Validate `auth_date` against `maxAgeSeconds` (default: 86400s / 24 hours).
+ */
+export function verifyWathanPayAuth(
+  authDataString: string,
+  maxAgeSeconds = 86400
+): WathanPayAuthResult {
+  const secret =
+    process.env.WATHANPAY_MERCHANT_SECRET ||
+    process.env.WATHANPAY_SECRET_KEY ||
+    process.env.WATHANPAY_API_KEY;
+
+  if (!secret) {
+    if (process.env.NODE_ENV === "production") {
+      return {
+        ok: false,
+        error: "WATHANPAY_MERCHANT_SECRET is not configured on production server",
+      };
+    }
+    // Non-production fallback for development/demo testing without secret
+    try {
+      const params = new URLSearchParams(authDataString);
+      const id = params.get("id") || params.get("user_id") || "";
+      if (!id) return { ok: false, error: "Missing user ID in authData" };
+      const name = params.get("name") || "WathanPay User";
+      const phone = params.get("phone") || params.get("maskedPhone") || undefined;
+      const avatarUrl = params.get("avatarUrl") || null;
+      return {
+        ok: true,
+        user: { id, name, phone, maskedPhone: phone, avatarUrl },
+      };
+    } catch {
+      return { ok: false, error: "Failed to parse authData" };
+    }
+  }
+
+  if (!authDataString || typeof authDataString !== "string") {
+    return { ok: false, error: "Missing authData" };
+  }
+
+  try {
+    const params = new URLSearchParams(authDataString);
+    const receivedHash = params.get("hash");
+    if (!receivedHash) {
+      return { ok: false, error: "Missing signature hash" };
+    }
+
+    params.delete("hash");
+
+    // 1. Sort keys alphabetically
+    const sortedKeys = Array.from(params.keys()).sort();
+    const dataCheckString = sortedKeys
+      .map((k) => `${k}=${params.get(k)}`)
+      .join("\n");
+
+    // 2. Calculate HMAC-SHA256 using Merchant Secret
+    const calculatedHash = crypto
+      .createHmac("sha256", secret)
+      .update(dataCheckString)
+      .digest("hex");
+
+    // 3. Constant-time comparison
+    const calcBuf = Buffer.from(calculatedHash.toLowerCase(), "utf8");
+    const recBuf = Buffer.from(receivedHash.toLowerCase(), "utf8");
+    if (
+      calcBuf.length !== recBuf.length ||
+      !crypto.timingSafeEqual(calcBuf, recBuf)
+    ) {
+      return { ok: false, error: "Invalid cryptographic signature" };
+    }
+
+    // 4. Replay attack protection (timestamp check)
+    const authDate = parseInt(params.get("auth_date") || "0", 10);
+    const now = Math.floor(Date.now() / 1000);
+    if (authDate > 0 && Math.abs(now - authDate) > maxAgeSeconds) {
+      return { ok: false, error: "Auth data expired" };
+    }
+
+    const id = params.get("id") || params.get("user_id") || "";
+    if (!id) {
+      return { ok: false, error: "Missing user ID in authData" };
+    }
+
+    const phone = params.get("phone") || params.get("maskedPhone") || undefined;
+
+    return {
+      ok: true,
+      authDate,
+      user: {
+        id,
+        name: params.get("name") || "WathanPay User",
+        phone,
+        maskedPhone: phone,
+        avatarUrl: params.get("avatarUrl") || null,
+      },
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Failed to verify authData",
+    };
+  }
+}
 
 export type VerifyPaymentParams = {
   shopOrderId: string;
@@ -28,7 +159,7 @@ export type VerifyPaymentResult = {
  * Endpoint:
  * GET https://api.wathanpay.com/v1/merchant/verify-payment?shopOrderId={shopOrderId}&transactionId={transactionId}
  * Headers:
- * X-API-Key: {YOUR_MERCHANT_API_KEY}
+ * X-API-Key: {YOUR_MERCHANT_SECRET_KEY}
  */
 export async function verifyWathanPayPayment(
   shopOrderIdOrParams: string | VerifyPaymentParams,
@@ -43,7 +174,10 @@ export async function verifyWathanPayPayment(
       : shopOrderIdOrParams;
 
   const { shopOrderId, transactionId, expectedAmountKs } = params;
-  const apiKey = process.env.WATHANPAY_API_KEY;
+  const apiKey =
+    process.env.WATHANPAY_MERCHANT_SECRET ||
+    process.env.WATHANPAY_SECRET_KEY ||
+    process.env.WATHANPAY_API_KEY;
   const baseUrl = (process.env.WATHANPAY_API_URL || "https://api.wathanpay.com").replace(/\/$/, "");
 
   // If no merchant API key is configured (e.g. local development or demo environment)
@@ -53,7 +187,7 @@ export async function verifyWathanPayPayment(
         ok: false,
         verified: false,
         status: "failed",
-        error: "WATHANPAY_API_KEY is not configured on production server.",
+        error: "WATHANPAY_MERCHANT_SECRET / WATHANPAY_API_KEY is not configured on production server.",
       };
     }
     return {

@@ -40,8 +40,16 @@ export function loadShopEnv() {
 
 export function dominateConfig() {
   loadShopEnv();
+  const rawUrl = process.env.DOMINATE_GATEWAY_URL || "https://pgw.flash-myanmar.com";
+  let url = rawUrl.replace(/\/$/, "");
+  if (!url.endsWith("/v1")) {
+    url = `${url}/v1`;
+  }
   return {
-    url: (process.env.DOMINATE_GATEWAY_URL || "").replace(/\/$/, ""),
+    url,
+    baseUrl: rawUrl.replace(/\/$/, ""),
     key: process.env.DOMINATE_GATEWAY_API_KEY || "",
+    webhookSecret: process.env.DOMINATE_WEBHOOK_SECRET || "",
   };
 }
+

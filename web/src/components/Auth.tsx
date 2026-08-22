@@ -52,6 +52,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const isWP = Boolean(
         window.WathanPay?.ready ||
         window.WathanPay?.user ||
+        window.WathanPay?.authData ||
         window.WathanPay?.accessToken ||
         window.WathanPay?.pay
       );
@@ -65,13 +66,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           (typeof window.WathanPay?.getUser === "function"
             ? window.WathanPay.getUser()
             : null);
+        const authData =
+          window.WathanPay?.authData ||
+          (typeof window.WathanPay?.getAuthData === "function"
+            ? window.WathanPay.getAuthData()
+            : "");
         const token = window.WathanPay?.accessToken;
 
-        if (user || token) {
+        if (authData || user || token) {
           try {
             const data = await api<{ user: Me }>("/api/auth/wathanpay", {
               method: "POST",
-              body: JSON.stringify({ user, accessToken: token }),
+              body: JSON.stringify({ authData, user, accessToken: token }),
             });
             if (mounted) {
               setMe(data.user);

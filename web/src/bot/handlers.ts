@@ -380,6 +380,9 @@ export async function handleCreateOrderAndDeposit(ctx: Context, methodId: string
   const methods = await listPaymentMethods();
   const selected = methods.find((m) => m.id === methodId);
 
+  let qrPngBase64: string | null = null;
+  let qrPayload: string | null = null;
+
   if (selected) {
     methodName = selected.method;
     accountName = selected.accountName;
@@ -391,6 +394,8 @@ export async function handleCreateOrderAndDeposit(ctx: Context, methodId: string
         orderId,
       });
       depositId = deposit.id;
+      qrPngBase64 = deposit.qr_png_base64 || null;
+      qrPayload = deposit.qr_payload || null;
     } catch {
       // Fallback to direct instructions if deposit create failed
     }
@@ -413,6 +418,8 @@ export async function handleCreateOrderAndDeposit(ctx: Context, methodId: string
     depositId,
     payeeName: accountName,
     payeePhone: accountNumber,
+    qrPngBase64,
+    qrPayload,
     txid: null,
     failReason: null,
     createdAt: new Date().toISOString(),
@@ -480,7 +487,7 @@ export async function handleLast5Input(ctx: Context, last5Raw: string) {
     try {
       const deposit = await verifyDepositLast5(session.depositId, last5);
       const st = String(deposit.status || "");
-      txid = String(deposit.bank_trx_id || deposit.trx_id || txid);
+      txid = String(deposit.matched_order_id || deposit.bank_trx_id || deposit.trx_id || txid);
       if (paidStatus(st)) {
         isSuccess = true;
       } else if (failedStatus(st)) {
@@ -492,7 +499,14 @@ export async function handleLast5Input(ctx: Context, last5Raw: string) {
         });
         return;
       }
-    } catch (err) {
+    } catch (err: unknown) {
+      const errObj = err as { status?: number; isProviderBusy?: boolean; message?: string };
+      if (errObj?.status === 503 || errObj?.isProviderBusy) {
+        await ctx.reply("⏳ Payment provider is currently busy or synchronizing. Please wait a few seconds and send the last 5 digits again.", {
+          reply_markup: cancelKeyboard(session.language),
+        });
+        return;
+      }
       failReason = err instanceof Error ? err.message : "Gateway verification failed.";
     }
   } else {
