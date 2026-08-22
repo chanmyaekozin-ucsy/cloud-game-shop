@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { hitRateLimit } from "./store";
 
 interface RateLimitRecord {
   count: number;
@@ -66,6 +67,10 @@ export function getClientIp(req: NextRequest | Request): string {
  * @param key Unique key for the rate limit bucket (e.g. `login:192.168.1.1` or `userId:order`)
  * @param limit Maximum allowed requests in the window
  * @param windowMs Window duration in milliseconds
+ *
+ * Counters live in SQLite (durable across restarts, shared by all processes
+ * on the same database). The in-memory Map is only a fallback for the rare
+ * case the store cannot be reached, so limiting never silently disappears.
  */
 export function checkRateLimit(
   key: string,
@@ -73,6 +78,15 @@ export function checkRateLimit(
   windowMs: number = 60 * 1000,
 ): { ok: boolean; remaining: number; resetAt: number } {
   const now = Date.now();
+
+  const dbCount = hitRateLimit(key, windowMs);
+  if (dbCount !== null) {
+    const windowStart = Math.floor(now / windowMs) * windowMs;
+    const resetAt = windowStart + windowMs;
+    return { ok: dbCount <= limit, remaining: Math.max(0, limit - dbCount), resetAt };
+  }
+
+  // In-memory fallback (fixed window).
   const existing = rateLimitStore.get(key);
 
   if (!existing || existing.resetAt <= now) {

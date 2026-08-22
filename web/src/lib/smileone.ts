@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import path from "path";
+import { decryptSession, encryptSession, sessionEncryptionEnabled } from "./session-crypto";
 import { loadShopEnv } from "./shop-env";
 
 const SESSION_FILE_MODE = 0o600;
@@ -72,12 +73,19 @@ export function smileSessionPath(): string | null {
 function loadSessionFile(): { path: string; data: SessionFile } | null {
   const file = smileSessionPath();
   if (!file || !existsSync(file)) return null;
+  let raw: SessionFile;
   try {
-    const data = JSON.parse(readFileSync(file, "utf8")) as SessionFile;
-    return { path: file, data };
+    raw = JSON.parse(readFileSync(file, "utf8")) as SessionFile;
   } catch {
+    // Unreadable/corrupt JSON is a missing session, not a security event.
     return null;
   }
+  // Decrypt outside the parse try-block: a missing key or tampered ciphertext
+  // must surface as an error, never masquerade as "no session configured".
+  if (raw.cookie_header) {
+    raw.cookie_header = decryptSession(raw.cookie_header).value;
+  }
+  return { path: file, data: raw };
 }
 
 function looksLikeLoginPage(html: string, finalUrl?: string | null) {
@@ -231,20 +239,31 @@ export async function updateSmileSession(input: {
     smileSessionPath() ||
     path.join(process.cwd(), "..", ".data", "smileone_session.json");
 
-  let existingData: SessionFile & {
-    cookies?: Array<{ name: string; value: string; [k: string]: unknown }>;
-  } = {};
-
+  // Existing file may be encrypted; normalize to a plaintext header for merging.
+  let existingHeader = "";
+  let existingRegion: string | undefined;
   if (existsSync(targetPath)) {
     try {
-      existingData = JSON.parse(readFileSync(targetPath, "utf8"));
+      const raw = JSON.parse(readFileSync(targetPath, "utf8")) as SessionFile & {
+        cookies?: Array<{ name: string; value: string }>;
+      };
+      existingRegion =
+        typeof raw.region === "string" ? raw.region : undefined;
+      if (raw.cookie_header) {
+        existingHeader = decryptSession(raw.cookie_header).value.trim();
+      } else if (Array.isArray(raw.cookies)) {
+        // Legacy structured-cookie format: rebuild the header from the array.
+        existingHeader = raw.cookies
+          .map((c) => `${c.name}=${c.value}`)
+          .join("; ");
+      }
     } catch {
-      existingData = {};
+      existingHeader = "";
     }
   }
 
-  let cookieHeader = (input.cookieHeader ?? existingData.cookie_header ?? "").trim();
-  const reg = (input.region ?? existingData.region ?? region()).trim().toLowerCase() || "br";
+  let cookieHeader = (input.cookieHeader ?? existingHeader).trim();
+  const reg = (input.region ?? existingRegion ?? region()).trim().toLowerCase() || "br";
 
   if (input.phpsessid !== undefined && input.phpsessid.trim() !== "") {
     const rawVal = input.phpsessid.trim();
@@ -261,36 +280,24 @@ export async function updateSmileSession(input: {
         } else {
           cookieHeader = cookieHeader ? `${cookieHeader}; PHPSESSID=${cleanToken}` : `PHPSESSID=${cleanToken}`;
         }
-
-        const cookiesList = Array.isArray(existingData.cookies) ? [...existingData.cookies] : [];
-        const phpIdx = cookiesList.findIndex((c) => c.name === "PHPSESSID");
-        if (phpIdx >= 0) {
-          cookiesList[phpIdx] = { ...cookiesList[phpIdx], value: cleanToken };
-        } else {
-          cookiesList.push({
-            name: "PHPSESSID",
-            value: cleanToken,
-            domain: "www.smile.one",
-            path: "/",
-            expires: -1,
-            httpOnly: true,
-            secure: false,
-            sameSite: "Lax",
-          });
-        }
-        existingData.cookies = cookiesList;
       }
     }
   } else if (input.cookieHeader !== undefined && input.cookieHeader.trim() !== "") {
     cookieHeader = input.cookieHeader.trim();
   }
 
-  existingData.cookie_header = cookieHeader;
-  existingData.region = reg;
-  existingData.saved_at = new Date().toISOString();
+  const savedAt = new Date().toISOString();
 
   mkdirSync(path.dirname(targetPath), { recursive: true });
-  writeFileSync(targetPath, JSON.stringify(existingData, null, 2) + "\n", { encoding: "utf8", mode: SESSION_FILE_MODE });
+  // Single source of truth: the (encrypted) header. The legacy `cookies`
+  // array is dropped on write so no plaintext PHPSESSID ever touches disk.
+  const toWrite = {
+    cookie_header: encryptSession(cookieHeader),
+    region: reg,
+    saved_at: savedAt,
+    ...(sessionEncryptionEnabled() ? { encrypted: true } : {}),
+  };
+  writeFileSync(targetPath, JSON.stringify(toWrite, null, 2) + "\n", { encoding: "utf8", mode: SESSION_FILE_MODE });
 
   const supplier = await getSmileSupplierStatus();
   const isOk = Boolean(supplier.session.valid && supplier.balance);

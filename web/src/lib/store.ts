@@ -144,6 +144,14 @@ function migrate(db: Database.Database) {
       detail TEXT NOT NULL DEFAULT '{}',
       created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS rate_limits (
+      key TEXT NOT NULL,
+      window_start INTEGER NOT NULL,
+      count INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL,
+      PRIMARY KEY (key, window_start)
+    );
+    CREATE INDEX IF NOT EXISTS idx_rate_limits_expiry ON rate_limits(expires_at);
   `);
 }
 
@@ -555,6 +563,42 @@ export function seenWebhookEvent(eventId: string): boolean {
     .prepare("INSERT OR IGNORE INTO webhook_events (id, received_at) VALUES (?, ?)")
     .run(eventId, new Date().toISOString());
   return inserted.changes === 0;
+}
+
+/**
+ * Durable fixed-window rate counter backed by SQLite. Survives restarts and
+ * is shared by every process pointing at the same database file. Expired
+ * rows are pruned opportunistically; a periodic sweep keeps the table small.
+ * Returns the count within the current window (including this hit), or null
+ * when the store is unavailable (caller falls back to in-memory limiting).
+ */
+export function hitRateLimit(key: string, windowMs: number): number | null {
+  try {
+    ensureBootstrapped();
+    const now = Date.now();
+    const windowStart = Math.floor(now / windowMs) * windowMs;
+    const expiresAt = windowStart + windowMs;
+
+    // Opportunistic prune (cheap with the expiry index; bounded by index scan).
+    if (Math.random() < 0.02) {
+      db!.prepare("DELETE FROM rate_limits WHERE expires_at <= ?").run(now);
+    }
+
+    db!
+      .prepare(
+        `INSERT INTO rate_limits (key, window_start, count, expires_at)
+         VALUES (?, ?, 1, ?)
+         ON CONFLICT(key, window_start) DO UPDATE SET count = count + 1`,
+      )
+      .run(key, windowStart, expiresAt);
+    const row = db!
+      .prepare("SELECT count FROM rate_limits WHERE key = ? AND window_start = ?")
+      .get(key, windowStart) as { count: number } | undefined;
+    return row ? row.count : null;
+  } catch (err) {
+    console.error("[RATE-LIMIT] SQLite counter failed, falling back to memory:", err);
+    return null;
+  }
 }
 
 /** Increment a user's tokenVersion, revoking all previously issued JWTs. */
