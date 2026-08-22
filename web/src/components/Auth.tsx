@@ -1,7 +1,8 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useState, useCallback } from "react";
 import { api } from "@/lib/api";
+import type { MiniAppUser } from "@/types/wathanpay";
 
 export type Me = {
   id: string;
@@ -11,6 +12,7 @@ export type Me = {
   email?: string;
   balanceKs: number;
   miniApp?: boolean;
+  avatarUrl?: string | null;
 };
 
 const AuthContext = createContext<{
@@ -36,34 +38,90 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
   const [miniApp, setMiniApp] = useState(false);
 
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     const data = await api<{ user: Me | null }>("/api/auth/me");
     setMe(data.user);
-  };
+  }, []);
 
   useEffect(() => {
-    const token = window.WathanPay?.accessToken;
-    if (token) {
-      setMiniApp(true);
-      document.documentElement.dataset.miniApp = "true";
-      api<{ user: Me }>("/api/auth/wathanpay", {
-        method: "POST",
-        body: JSON.stringify({ accessToken: token }),
-      })
-        .then((data) => setMe(data.user))
-        .catch(() => undefined)
-        .finally(() => setReady(true));
-      return;
+    let mounted = true;
+
+    async function syncWathanPayUser() {
+      if (typeof window === "undefined") return;
+
+      const isWP = Boolean(
+        window.WathanPay?.ready ||
+        window.WathanPay?.user ||
+        window.WathanPay?.accessToken ||
+        window.WathanPay?.pay
+      );
+
+      if (isWP) {
+        setMiniApp(true);
+        document.documentElement.dataset.miniApp = "true";
+
+        const user: MiniAppUser | null =
+          window.WathanPay?.user ||
+          (typeof window.WathanPay?.getUser === "function"
+            ? window.WathanPay.getUser()
+            : null);
+        const token = window.WathanPay?.accessToken;
+
+        if (user || token) {
+          try {
+            const data = await api<{ user: Me }>("/api/auth/wathanpay", {
+              method: "POST",
+              body: JSON.stringify({ user, accessToken: token }),
+            });
+            if (mounted) {
+              setMe(data.user);
+              setReady(true);
+            }
+            return;
+          } catch {
+            // Fallback to cookie check if WathanPay auth route fails
+          }
+        }
+      }
+
+      try {
+        const data = await api<{ user: Me | null }>("/api/auth/me");
+        if (mounted) {
+          setMe(data.user);
+        }
+      } catch {
+        if (mounted) {
+          setMe(null);
+        }
+      } finally {
+        if (mounted) {
+          setReady(true);
+        }
+      }
     }
-    refresh()
-      .catch(() => undefined)
-      .finally(() => setReady(true));
+
+    void syncWathanPayUser();
+
+    function onBridgeReady() {
+      void syncWathanPayUser();
+    }
+
+    window.addEventListener("WathanPayReady", onBridgeReady);
+    window.addEventListener("WathanPayBridgeReady", onBridgeReady);
+
+    return () => {
+      mounted = false;
+      window.removeEventListener("WathanPayReady", onBridgeReady);
+      window.removeEventListener("WathanPayBridgeReady", onBridgeReady);
+    };
   }, []);
 
   const logout = async () => {
     await api("/api/auth/logout", { method: "POST" });
     setMe(null);
-    if (window.WathanPay?.close) window.WathanPay.close();
+    if (typeof window.WathanPay?.close === "function") {
+      window.WathanPay.close();
+    }
   };
 
   return (

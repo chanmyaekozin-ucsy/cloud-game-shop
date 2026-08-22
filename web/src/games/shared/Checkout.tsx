@@ -168,8 +168,8 @@ export function Checkout({ slug }: { slug: string }) {
       const txid = await payWithWathanPay({
         orderId: id,
         amount: salePriceKs(pkg),
-        title: game.name,
-        subtitle: pkg.displayName,
+        title: `${game.name} - ${pkg.displayName}`,
+        subtitle: `Player: ${account.nickname || account.gameUserId}${account.zoneId ? ` (${account.zoneId})` : ""}`,
       });
       const paid = await api<{ order: { id: string } }>(`/api/orders/${id}/paid`, {
         method: "POST",

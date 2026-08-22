@@ -20,6 +20,7 @@ export type User = {
   pinHash: string;
   balanceKs: number;
   wathanpaySub?: string;
+  avatarUrl?: string | null;
   twoFactorSecret?: string | null;
   twoFactorEnabled?: boolean;
 };

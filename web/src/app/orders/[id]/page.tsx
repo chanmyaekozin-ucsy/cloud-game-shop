@@ -100,8 +100,8 @@ export default function OrderResultPage() {
       const txid = await payWithWathanPay({
         orderId: current.id,
         amount: current.amountKs,
-        title: current.gameName,
-        subtitle: current.packageName,
+        title: `${current.gameName} - ${current.packageName}`,
+        subtitle: `Player: ${current.nickname || current.gameUserId}${current.zoneId ? ` (${current.zoneId})` : ""}`,
       });
       await api(`/api/orders/${current.id}/paid`, {
         method: "POST",
