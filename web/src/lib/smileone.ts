@@ -88,13 +88,28 @@ function loadSessionFile(): { path: string; data: SessionFile } | null {
   return { path: file, data: raw };
 }
 
+/**
+ * Detect a real login wall — not mere nav links to /login (404 and merchant
+ * pages both contain those and used to false-positive as "session expired").
+ */
 function looksLikeLoginPage(html: string, finalUrl?: string | null) {
+  const url = (finalUrl || "").toLowerCase();
+  if (url.includes("/customer/account/login") || url.includes("/account/login")) {
+    return true;
+  }
+  // Strong logged-in / merchant-shop markers
   if (html.includes("balance-coins")) return false;
   if (html.includes("info = JSON.parse")) return false;
-  if (finalUrl?.includes("/customer/account/login")) return true;
-  if (html.includes("customer/account/login")) return true;
+  if (/name=["']_csrf["']/i.test(html) && /merchant\/[^/"']+\/pay/i.test(html)) return false;
+
   if (LOGIN_TITLE_RE.test(html)) return true;
-  if (html.includes("Login with Google") || html.includes("Entrar com Google")) return true;
+  // Google login CTA only counts when the page looks like an auth screen
+  if (
+    (html.includes("Login with Google") || html.includes("Entrar com Google")) &&
+    !html.includes("js_checkrole_url")
+  ) {
+    return true;
+  }
   return false;
 }
 
@@ -319,6 +334,20 @@ function extractCsrf(html: string): string | null {
   return match?.[1] || null;
 }
 
+/** MLBB merchant shop paths on Smile.one (region-scoped HTML, global AJAX). */
+function smileMlbbMerchantPaths(reg: string) {
+  const base = "https://www.smile.one";
+  const shop = `${base}/${reg}/merchant/mobilelegends`;
+  return {
+    shop,
+    referer: shop,
+    checkrole: `${base}/merchant/mobilelegends/checkrole`,
+    query: `${base}/merchant/mobilelegends/query`,
+    customer: `${base}/merchant/customer`,
+    pay: `${base}/${reg}/merchant/mobilelegends/pay`,
+  };
+}
+
 export async function paySmileoneMlbb(input: {
   gameUserId: string;
   zoneId: string;
@@ -330,13 +359,20 @@ export async function paySmileoneMlbb(input: {
   }
   const cookie = loaded.data.cookie_header;
   const reg = region();
-  const merchantUrl = `https://www.smile.one/${reg}/merchant`;
-  const referer = `https://www.smile.one/${reg}/merchant`;
+  const paths = smileMlbbMerchantPaths(reg);
 
   try {
-    const page = await fetchOrderPage(cookie, merchantUrl);
+    // Prefer the real MLBB shop page — `/br/merchant` is a 404 and used to be
+    // misread as "session expired" because the 404 HTML links to login.
+    const page = await fetchOrderPage(cookie, paths.shop);
     if (looksLikeLoginPage(page.html, page.finalUrl)) {
       return { ok: false, message: "Smile.one session expired." };
+    }
+    if (!page.ok) {
+      return {
+        ok: false,
+        message: `Smile.one merchant page returned HTTP ${page.status}.`,
+      };
     }
     const csrf = extractCsrf(page.html);
     if (!csrf) {
@@ -351,59 +387,63 @@ export async function paySmileoneMlbb(input: {
       channel_method: "smilecoin",
     };
 
-    // 1. checkrole
-    const checkRes = await fetch(`https://www.smile.one/${reg}/merchant/checkrole`, {
+    const jsonHeaders = {
+      "User-Agent": USER_AGENT,
+      "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+      Cookie: cookie,
+      Referer: paths.referer,
+      "X-Requested-With": "XMLHttpRequest",
+    };
+
+    // 1. checkrole (validates account; may already return flowid)
+    const checkRes = await fetch(paths.checkrole, {
       method: "POST",
-      headers: {
-        "User-Agent": USER_AGENT,
-        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-        Cookie: cookie,
-        Referer: referer,
-      },
+      headers: jsonHeaders,
       body: new URLSearchParams({ ...basePayload, checkrole: "1" }).toString(),
     });
-    const checkJson = (await checkRes.json().catch(() => ({}))) as { code?: number; info?: string };
+    const checkJson = (await checkRes.json().catch(() => ({}))) as {
+      code?: number;
+      info?: string;
+      flowid?: string;
+    };
     if (Number(checkJson.code) !== 200) {
       return { ok: false, message: checkJson.info || "MLBB account validation failed on Smile.one." };
     }
 
-    // 2. query -> flowid
-    const queryRes = await fetch(`https://www.smile.one/${reg}/merchant/query`, {
-      method: "POST",
-      headers: {
-        "User-Agent": USER_AGENT,
-        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-        Cookie: cookie,
-        Referer: referer,
-      },
-      body: new URLSearchParams({ ...basePayload, checkrole: "" }).toString(),
-    });
-    const queryJson = (await queryRes.json().catch(() => ({}))) as { code?: number; flowid?: string; info?: string };
-    const flowid = queryJson.flowid || "";
-    if (Number(queryJson.code) !== 200 || !flowid) {
-      return { ok: false, message: queryJson.info || "Smile.one did not issue a flow ID." };
+    // 2. queryorder -> flowid (required before pay)
+    let flowid = String(checkJson.flowid || "").trim();
+    if (!flowid) {
+      const queryRes = await fetch(paths.query, {
+        method: "POST",
+        headers: jsonHeaders,
+        body: new URLSearchParams({ ...basePayload, checkrole: "" }).toString(),
+      });
+      const queryJson = (await queryRes.json().catch(() => ({}))) as {
+        code?: number;
+        flowid?: string;
+        info?: string;
+      };
+      flowid = String(queryJson.flowid || "").trim();
+      if (Number(queryJson.code) !== 200 || !flowid) {
+        return { ok: false, message: queryJson.info || "Smile.one did not issue a flow ID." };
+      }
     }
 
-    // 3. customer check
-    await fetch(`https://www.smile.one/${reg}/merchant/customer`, {
+    // 3. customer check (same as browser shop JS)
+    await fetch(paths.customer, {
       method: "POST",
-      headers: {
-        "User-Agent": USER_AGENT,
-        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-        Cookie: cookie,
-        Referer: referer,
-      },
+      headers: jsonHeaders,
       body: new URLSearchParams({ check: "check" }).toString(),
     }).catch(() => undefined);
 
     // 4. pay
-    const payRes = await fetch(`https://www.smile.one/${reg}/merchant/pay`, {
+    const payRes = await fetch(paths.pay, {
       method: "POST",
       headers: {
         "User-Agent": USER_AGENT,
         "Content-Type": "application/x-www-form-urlencoded",
         Cookie: cookie,
-        Referer: merchantUrl,
+        Referer: paths.referer,
       },
       body: new URLSearchParams({
         user_id: input.gameUserId.trim(),
@@ -416,12 +456,22 @@ export async function paySmileoneMlbb(input: {
         coupon_id: "",
         _csrf: csrf,
       }).toString(),
+      redirect: "follow",
     });
 
     const payHtml = await payRes.text();
     const finalUrl = payRes.url;
-    if (finalUrl.includes("/success") || payHtml.includes("Payment Successful") || payHtml.includes("Success")) {
+    if (
+      finalUrl.includes("/success") ||
+      /payment successful/i.test(payHtml) ||
+      /pagamento\s+(realizado\s+)?com\s+sucesso/i.test(payHtml) ||
+      (payHtml.includes("Success") && !looksLikeLoginPage(payHtml, finalUrl))
+    ) {
       return { ok: true, message: `Smile.one Top-up Succeeded (goods: ${input.smileGoodsId})` };
+    }
+
+    if (looksLikeLoginPage(payHtml, finalUrl)) {
+      return { ok: false, message: "Smile.one session expired during payment." };
     }
 
     return { ok: false, message: "Smile.one payment did not return success page." };
