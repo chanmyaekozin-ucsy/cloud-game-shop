@@ -220,7 +220,7 @@ export async function handlePackageSelect(ctx: Context, pkgId: string) {
   }
 
   setStep(session, "enter_game_id");
-  const isMlbb = game?.slug === "mlbb" || game?.id === "mlbb";
+  const isMlbb = game?.slug === "mlbb" || game?.id === "game_mlbb" || game?.id === "mlbb";
   await ctx.reply(
     t("enter_game_id", session.language, {
       format: isMlbb ? "GameID(ServerID)" : "GameID",
@@ -532,7 +532,9 @@ export async function handleLast5Input(ctx: Context, last5Raw: string) {
     const orderBefore = store.orders.find(
       (o) => o.id === orderId && o.userId === `tg_${session.telegramId}`,
     );
-    if (orderBefore && orderBefore.gameId === "mlbb") {
+    // Auto top-up when the package has a Smile.one goods id
+    // (game ids are `game_mlbb`, not `mlbb`).
+    if (orderBefore) {
       const pkg = store.packages.find((p) => p.id === orderBefore.packageId);
       if (pkg?.smileGoodsId) {
         topupResult.attempted = true;

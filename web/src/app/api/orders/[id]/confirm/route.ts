@@ -124,28 +124,24 @@ export async function POST(
             txnStatus: "succeeded",
           });
 
-          if (order.gameId === "mlbb") {
-            const pkg = store.packages.find((p) => p.id === order.packageId);
-            if (pkg?.smileGoodsId) {
-              const topup = await paySmileoneMlbb({
-                gameUserId: order.gameUserId,
-                zoneId: order.zoneId,
-                smileGoodsId: pkg.smileGoodsId,
-              });
-              if (!topup.ok) {
-                order.status = "processing";
-                order.failReason = `Auto-topup failed: ${topup.message}`;
-                topupFailedReason = topup.message;
-              }
-            } else {
+          // Auto top-up when the package has a Smile.one goods id
+          // (game ids are `game_mlbb`, not `mlbb`).
+          const pkg = store.packages.find((p) => p.id === order.packageId);
+          if (pkg?.smileGoodsId) {
+            const topup = await paySmileoneMlbb({
+              gameUserId: order.gameUserId,
+              zoneId: order.zoneId,
+              smileGoodsId: pkg.smileGoodsId,
+            });
+            if (!topup.ok) {
               order.status = "processing";
-              order.failReason = "Awaiting manual fulfillment";
-              topupFailedReason = "No SmileGoods ID configured";
+              order.failReason = `Auto-topup failed: ${topup.message}`;
+              topupFailedReason = topup.message;
             }
           } else {
             order.status = "processing";
             order.failReason = "Awaiting manual fulfillment";
-            topupFailedReason = "Manual delivery game";
+            topupFailedReason = "No SmileGoods ID configured";
           }
         }
         finalOrder = order;
@@ -199,28 +195,24 @@ export async function POST(
         txnStatus: "succeeded",
       });
 
-      if (order.gameId === "mlbb") {
-        const pkg = store.packages.find((p) => p.id === order.packageId);
-        if (pkg?.smileGoodsId) {
-          const topup = await paySmileoneMlbb({
-            gameUserId: order.gameUserId,
-            zoneId: order.zoneId,
-            smileGoodsId: pkg.smileGoodsId,
-          });
-          if (!topup.ok) {
-            order.status = "processing";
-            order.failReason = `Auto-topup failed: ${topup.message}`;
-            topupFailedReason = topup.message;
-          }
-        } else {
+      // Auto top-up when the package has a Smile.one goods id
+      // (game ids are `game_mlbb`, not `mlbb`).
+      const pkg = store.packages.find((p) => p.id === order.packageId);
+      if (pkg?.smileGoodsId) {
+        const topup = await paySmileoneMlbb({
+          gameUserId: order.gameUserId,
+          zoneId: order.zoneId,
+          smileGoodsId: pkg.smileGoodsId,
+        });
+        if (!topup.ok) {
           order.status = "processing";
-          order.failReason = "Awaiting manual fulfillment";
-          topupFailedReason = "No SmileGoods ID configured";
+          order.failReason = `Auto-topup failed: ${topup.message}`;
+          topupFailedReason = topup.message;
         }
       } else {
         order.status = "processing";
         order.failReason = "Awaiting manual fulfillment";
-        topupFailedReason = "Manual delivery game";
+        topupFailedReason = "No SmileGoods ID configured";
       }
 
       finalOrder = order;
