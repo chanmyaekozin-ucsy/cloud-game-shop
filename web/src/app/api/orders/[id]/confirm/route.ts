@@ -22,6 +22,10 @@ function finish(
   txn.note = input.message;
 }
 
+function newTxnId() {
+  return `txn_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+}
+
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -37,7 +41,7 @@ export async function POST(
     const rlOrder = checkRateLimit(`confirm_order:${id}`, 6, 60 * 1000);
     if (!rlOrder.ok) return rateLimitResponse(rlOrder.resetAt);
 
-    const body = (await req.json()) as { last5?: string; accessToken?: string };
+    const body = (await req.json()) as { last5?: string };
     const last5 = String(body.last5 ?? "").replace(/\D/g, "").slice(0, 5);
     if (last5.length !== 5) {
       return Response.json({ error: "Enter the last 5 digits of the TxID." }, { status: 400 });
@@ -50,7 +54,6 @@ export async function POST(
       return Response.json({ error: "This order is already closed." }, { status: 409 });
     }
 
-    const isDev = process.env.NODE_ENV !== "production";
     let topupFailedReason: string | null = null;
     let finalOrder: Order | null = null;
 
@@ -73,7 +76,7 @@ export async function POST(
       }
 
       const status = String(deposit.status || "");
-      const txid = String(deposit.matched_order_id || deposit.bank_trx_id || deposit.trx_id || last5);
+      const txid = String(deposit.matched_order_id || deposit.bank_trx_id || deposit.trx_id || "");
 
       if (status === "pending") {
         return Response.json(
@@ -86,7 +89,7 @@ export async function POST(
         const order = store.orders.find((o) => o.id === id && o.userId === session.sub);
         if (!order) throw Object.assign(new Error("Order not found."), { status: 404 });
         const txn: Transaction = {
-          id: `txn_${Date.now().toString(36)}`,
+          id: newTxnId(),
           orderId: order.id,
           userId: order.userId,
           amountKs: order.amountKs,
@@ -105,13 +108,14 @@ export async function POST(
             message: deposit.verify_reason || "Payment failed.",
             txnStatus: "failed",
           });
-        } else if (isDev && last5 === "99999") {
+        } else if (!txid) {
           finish(order, txn, {
             status: "failed",
             txid,
-            message: "Top-up failed. Payment will be reviewed.",
-            txnStatus: "succeeded",
+            message: "Gateway did not return a transaction reference. Payment will be reviewed.",
+            txnStatus: "pending",
           });
+          order.status = "processing";
         } else {
           finish(order, txn, {
             status: "success",
@@ -155,23 +159,30 @@ export async function POST(
       return Response.json(result);
     }
 
+    // WathanPay path: only a verified ledger result can settle the order.
+    // There is no local balance-spending fallback.
     const verification = await verifyWathanPayPayment(id, existing.amountKs);
+    if (!verification.ok || !verification.transactionId) {
+      return Response.json(
+        { error: verification.error || "WathanPay payment verification failed." },
+        { status: 400 },
+      );
+    }
+    const txid = verification.transactionId;
 
     const result = await updateStore(async (store) => {
-      const user = store.users.find((u) => u.id === session.sub);
       const order = store.orders.find((o) => o.id === id && o.userId === session.sub);
-      if (!user || !order) {
+      if (!order) {
         throw Object.assign(new Error("Order not found."), { status: 404 });
       }
       if (order.status !== "awaiting_payment") {
         throw Object.assign(new Error("This order is already closed."), { status: 409 });
       }
 
-      const txid = verification.transactionId || `WP${last5}${Date.now().toString().slice(-6)}`;
       const txn: Transaction = {
-        id: `txn_${Date.now().toString(36)}`,
+        id: newTxnId(),
         orderId: order.id,
-        userId: user.id,
+        userId: order.userId,
         amountKs: order.amountKs,
         method: "WathanPay",
         txid,
@@ -180,30 +191,6 @@ export async function POST(
         createdAt: new Date().toISOString(),
       };
       store.transactions.push(txn);
-
-      const payFailed =
-        (isDev && last5 === "00000") ||
-        verification.ok === false ||
-        (!process.env.WATHANPAY_API_KEY && user.balanceKs < order.amountKs);
-
-      if (payFailed) {
-        const message =
-          verification.error ||
-          (last5 === "00000" ? "Payment was declined." : "Not enough WathanPay balance.");
-        finish(order, txn, { status: "failed", txid, message, txnStatus: "failed" });
-        return { order, transaction: txn };
-      }
-
-      if (!process.env.WATHANPAY_API_KEY) user.balanceKs -= order.amountKs;
-      if (isDev && last5 === "99999") {
-        finish(order, txn, {
-          status: "failed",
-          txid,
-          message: "Top-up failed. Payment will be reviewed.",
-          txnStatus: "succeeded",
-        });
-        return { order, transaction: txn };
-      }
 
       finish(order, txn, {
         status: "success",

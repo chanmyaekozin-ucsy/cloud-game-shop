@@ -35,9 +35,9 @@ yarn-error.log*
 .env*
 !.env.example
 
-# local shop data
-/data/store.json
-/data/uploads/
+# local shop data (contains user PII and PIN hashes - never commit)
+/data/
+!/data/uploads/.gitkeep
 
 # vercel
 .vercel

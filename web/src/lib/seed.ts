@@ -1,46 +1,39 @@
 import { GAME_MODULES, toGameRecord } from "@/games/shared/catalog";
-import { hashPin, verifyPin } from "./hash";
+import { hashPin } from "./hash";
 import { loadShopEnv } from "./shop-env";
-import type { Store, User } from "./types";
-
-let warnedAdmin = false;
+import type { Store } from "./types";
 
 export function adminCredentials() {
   loadShopEnv();
-  const email = (process.env.ADMIN_EMAIL || "admin@cloudgameshop.com").trim().toLowerCase();
-  const password = (process.env.ADMIN_PASSWORD || process.env.ADMIN_PIN || "admin123456").trim();
+  const email = (process.env.ADMIN_EMAIL || "").trim().toLowerCase();
+  const password = (process.env.ADMIN_PASSWORD || process.env.ADMIN_PIN || "").trim();
 
-  if (process.env.NODE_ENV === "production" && password === "admin123456" && !warnedAdmin) {
-    console.warn(
-      "[SECURITY WARNING] Default ADMIN_PASSWORD ('admin123456') detected in production! Please set a strong ADMIN_PASSWORD in your environment.",
+  if (!email || !password) {
+    throw new Error(
+      "[CONFIG] ADMIN_EMAIL and ADMIN_PASSWORD must be set. Refusing to seed an admin account with default credentials.",
     );
-    warnedAdmin = true;
   }
 
-  return {
-    email: email || "admin@cloudgameshop.com",
-    password: password || "admin123456",
-  };
+  return { email, password };
+}
+
+export function assertRequiredEnvConfigured() {
+  adminCredentials();
+  if (!process.env.AUTH_SECRET) {
+    throw new Error(
+      "[CONFIG] AUTH_SECRET is not set. Refusing to run: sessions cannot be signed securely. Generate one with `openssl rand -base64 48`.",
+    );
+  }
 }
 
 export function seedStore(): Store {
   const admin = adminCredentials();
-  const isProd = process.env.NODE_ENV === "production";
   return {
     users: [
       {
-        id: "user_demo",
-        name: "Aung Aung",
-        phone: "09970000000",
-        email: "user@cloudgameshop.com",
-        role: "user",
-        pinHash: hashPin("123456"),
-        balanceKs: isProd ? 0 : 500000,
-      },
-      {
         id: "user_admin",
         name: "Admin",
-        phone: "09970000001",
+        phone: "",
         email: admin.email,
         role: "admin",
         pinHash: hashPin(admin.password),
@@ -55,20 +48,19 @@ export function seedStore(): Store {
 }
 
 /** Keep the seeded admin account in sync with ADMIN_EMAIL / ADMIN_PASSWORD. */
-export function syncAdminFromEnv(store: Store) {
+export function syncAdminFromEnv(store: Store): boolean {
   const { email, password } = adminCredentials();
-  const admin = store.users.find((u) => u.id === "user_admin" || u.role === "admin");
+  let admin = store.users.find((u) => u.id === "user_admin" || u.role === "admin");
   if (!admin) {
-    const created: User = {
+    store.users.push({
       id: "user_admin",
       name: "Admin",
-      phone: "09970000001",
+      phone: "",
       email,
       role: "admin",
       pinHash: hashPin(password),
       balanceKs: 0,
-    };
-    store.users.push(created);
+    });
     return true;
   }
   let changed = false;
@@ -76,7 +68,7 @@ export function syncAdminFromEnv(store: Store) {
     admin.email = email;
     changed = true;
   }
-  if (!verifyPin(password, admin.pinHash)) {
+  if (admin.pinHash !== hashPin(password)) {
     admin.pinHash = hashPin(password);
     changed = true;
   }

@@ -1,9 +1,9 @@
 import { NextRequest } from "next/server";
 import { jsonError, setSessionCookie } from "@/lib/auth";
-import { hashPassword, verifyPassword } from "@/lib/hash";
+import { verifyPassword } from "@/lib/hash";
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit";
 import { readStore, updateStore } from "@/lib/store";
-import { verifyTotp } from "@/lib/totp";
+import { verifyTotpCounter } from "@/lib/totp";
 
 export async function POST(req: NextRequest) {
   try {
@@ -32,17 +32,21 @@ export async function POST(req: NextRequest) {
         u.phone.replace(/\s/g, "") === identifier.replace(/\s/g, "") ||
         u.email.toLowerCase() === identifier,
     );
-    if (!user || !verifyPassword(secret, user.pinHash)) {
+    if (!user) {
       return Response.json({ error: "Wrong credentials. Please try again." }, { status: 401 });
     }
 
-    // Transparently upgrade legacy SHA-256 hash to scrypt
     if (!user.pinHash.startsWith("scrypt:")) {
-      await updateStore((s) => {
-        const u = s.users.find((item) => item.id === user.id);
-        if (u) u.pinHash = hashPassword(secret);
-        return u;
-      }).catch(() => undefined);
+      // Hash format predates the scrypt migration and is no longer verifiable.
+      console.error(`[AUTH] User ${user.id} has a non-scrypt pinHash; password reset required.`);
+      return Response.json(
+        { error: "This account must reset its password before signing in. Contact support." },
+        { status: 403 },
+      );
+    }
+
+    if (!verifyPassword(secret, user.pinHash)) {
+      return Response.json({ error: "Wrong credentials. Please try again." }, { status: 401 });
     }
 
     // Check 2FA if enabled
@@ -54,16 +58,36 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      const isValid = verifyTotp(totpCode, user.twoFactorSecret);
-      if (!isValid) {
+      const matchedCounter = verifyTotpCounter(totpCode, user.twoFactorSecret);
+      if (matchedCounter === null) {
         return Response.json(
           { error: "Invalid 6-digit authenticator code. Please try again." },
           { status: 401 },
         );
       }
+
+      // Replay protection: reject codes from counters already consumed.
+      const lastUsed = user.lastUsedTotpCounter ?? 0;
+      if (matchedCounter <= lastUsed) {
+        return Response.json(
+          { error: "This code was already used. Wait for the next code and try again." },
+          { status: 401 },
+        );
+      }
+
+      await updateStore((s) => {
+        const u = s.users.find((item) => item.id === user.id);
+        if (u) u.lastUsedTotpCounter = matchedCounter;
+        return u;
+      });
     }
 
-    await setSessionCookie({ sub: user.id, role: user.role, name: user.name });
+    await setSessionCookie({
+      sub: user.id,
+      role: user.role,
+      name: user.name,
+      ver: user.tokenVersion ?? 0,
+    });
     return Response.json({
       user: {
         id: user.id,

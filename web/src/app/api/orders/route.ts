@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { jsonError, requireUser } from "@/lib/auth";
+import { randomId } from "@/lib/hash";
 import { salePriceKs } from "@/lib/format";
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit";
 import { readStore, updateStore } from "@/lib/store";
@@ -77,7 +78,7 @@ export async function POST(req: NextRequest) {
         throw Object.assign(new Error("Package not found."), { status: 404 });
       }
       const created: Order = {
-        id: `ord_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+        id: randomId("ord", 12),
         userId: user.id,
         gameId: game.id,
         gameName: game.name,

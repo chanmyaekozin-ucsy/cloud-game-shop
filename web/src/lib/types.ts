@@ -23,6 +23,8 @@ export type User = {
   avatarUrl?: string | null;
   twoFactorSecret?: string | null;
   twoFactorEnabled?: boolean;
+  tokenVersion?: number;
+  lastUsedTotpCounter?: number;
 };
 
 export type Game = {

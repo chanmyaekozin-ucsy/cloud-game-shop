@@ -18,8 +18,6 @@ export async function POST(
     if (!rl.ok) return rateLimitResponse(rl.resetAt);
 
     const { id } = await params;
-    const body = (await req.json().catch(() => ({}))) as { txid?: string };
-    const clientTxid = String(body.txid ?? "").trim();
 
     const store = await readStore();
     const existing = store.orders.find((o) => o.id === id && o.userId === session.sub);
@@ -27,7 +25,7 @@ export async function POST(
       return Response.json({ error: "Order not found." }, { status: 404 });
     }
 
-    if (existing.status === "success" && (existing.txid === clientTxid || !clientTxid)) {
+    if (existing.status === "success") {
       return Response.json({
         order: existing,
         transaction: store.transactions.find((t) => t.orderId === existing.id) ?? null,
@@ -38,19 +36,16 @@ export async function POST(
       return Response.json({ error: "This order is already closed." }, { status: 409 });
     }
 
-    // Verify on WathanPay ledger (if WATHANPAY_API_KEY is set)
+    // Verify on the WathanPay ledger. The ledger's transactionId and paidAt
+    // are the only accepted proof - client-supplied txids are ignored.
     const verification = await verifyWathanPayPayment(existing.id, existing.amountKs);
-    if (!verification.ok) {
+    if (!verification.ok || !verification.transactionId) {
       return Response.json(
         { error: verification.error || "WathanPay payment verification failed." },
         { status: 400 },
       );
     }
-
-    const txid = verification.transactionId || clientTxid;
-    if (!txid) {
-      return Response.json({ error: "Missing WathanPay transaction ID." }, { status: 400 });
-    }
+    const txid = verification.transactionId;
 
     let topupFailedReason: string | null = null;
     let finalOrder: Order | null = null;
@@ -98,7 +93,7 @@ export async function POST(
       }
 
       const txn: Transaction = {
-        id: `txn_${Date.now().toString(36)}`,
+        id: `txn_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
         orderId: order.id,
         userId: order.userId,
         amountKs: order.amountKs,

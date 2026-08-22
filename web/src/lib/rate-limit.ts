@@ -8,13 +8,30 @@ interface RateLimitRecord {
 const MAX_RATE_LIMIT_KEYS = 10000;
 const rateLimitStore = new Map<string, RateLimitRecord>();
 
-function sanitizeIp(raw: string | null): string | null {
-  if (!raw) return null;
+/**
+ * Number of trusted proxy hops in front of the app (TRUST_PROXY_COUNT).
+ * Only headers set by the outermost trusted hop are honored; everything
+ * beyond that is client-spoofable. With no proxies configured (direct
+ * exposure), socket-style resolution is unavailable in Next route handlers,
+ * so all clients share one bucket per key - strict but safe.
+ */
+function trustProxyCount(): number {
+  const n = Number(process.env.TRUST_PROXY_COUNT || "0");
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+}
+
+function sanitizeIp(raw: string): string | null {
   const clean = raw.trim();
   if (/^[a-fA-F0-9:.]+$/.test(clean) && clean.length <= 45) {
     return clean;
   }
   return null;
+}
+
+function sanitizeIpList(raw: string | null): string[] | null {
+  if (!raw) return null;
+  const ips = raw.split(",").map((part) => sanitizeIp(part)).filter((ip): ip is string => Boolean(ip));
+  return ips.length > 0 ? ips : null;
 }
 
 // Clean up expired entries every 5 minutes
@@ -30,20 +47,18 @@ if (typeof setInterval !== "undefined") {
 }
 
 export function getClientIp(req: NextRequest | Request): string {
-  const headers = req.headers;
-  const cfConnectingIp = sanitizeIp(headers.get("cf-connecting-ip"));
-  if (cfConnectingIp) return cfConnectingIp;
+  const hops = trustProxyCount();
+  if (hops === 0) return "direct";
 
-  const xRealIp = sanitizeIp(headers.get("x-real-ip"));
-  if (xRealIp) return xRealIp;
+  // Walk XFF from right to left, skipping the trusted proxy hops, to reach
+  // the first untrusted (client-controlled) address.
+  const xff = sanitizeIpList(req.headers.get("x-forwarded-for"));
+  if (!xff) return "direct";
 
-  const xForwardedFor = headers.get("x-forwarded-for");
-  if (xForwardedFor) {
-    const first = sanitizeIp(xForwardedFor.split(",")[0]);
-    if (first) return first;
-  }
-
-  return "127.0.0.1";
+  const fromRight = [...xff].reverse();
+  const idx = hops - 1;
+  if (idx >= fromRight.length) return "direct";
+  return fromRight[idx];
 }
 
 /**
@@ -51,7 +66,6 @@ export function getClientIp(req: NextRequest | Request): string {
  * @param key Unique key for the rate limit bucket (e.g. `login:192.168.1.1` or `userId:order`)
  * @param limit Maximum allowed requests in the window
  * @param windowMs Window duration in milliseconds
- * @returns `{ ok: boolean; remaining: number; resetAt: number }`
  */
 export function checkRateLimit(
   key: string,

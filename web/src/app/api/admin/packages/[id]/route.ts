@@ -1,13 +1,13 @@
 import { NextRequest } from "next/server";
 import { jsonError, requireAdmin } from "@/lib/auth";
-import { updateStore } from "@/lib/store";
+import { audit, updateStore } from "@/lib/store";
 
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    await requireAdmin();
+    const session = await requireAdmin();
     const { id } = await params;
     const body = (await req.json()) as Partial<{
       displayName: string;
@@ -22,6 +22,7 @@ export async function PATCH(
     const pkg = await updateStore((store) => {
       const found = store.packages.find((p) => p.id === id);
       if (!found) throw Object.assign(new Error("Package not found."), { status: 404 });
+      const before = { priceKs: found.priceKs, isActive: found.isActive };
       if (typeof body.displayName === "string" && body.displayName.trim()) {
         found.displayName = body.displayName.trim();
       }
@@ -34,6 +35,12 @@ export async function PATCH(
       if (typeof body.smileCoin === "number") found.smileCoin = Math.max(0, body.smileCoin);
       if (typeof body.featured === "boolean") found.featured = body.featured;
       if (typeof body.isActive === "boolean") found.isActive = body.isActive;
+      audit(session.sub, "package.update", {
+        packageId: id,
+        priceChanged: before.priceKs !== found.priceKs,
+        before,
+        after: { priceKs: found.priceKs, isActive: found.isActive },
+      });
       return found;
     });
     return Response.json({ package: pkg });

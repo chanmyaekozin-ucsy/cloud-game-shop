@@ -1,10 +1,10 @@
 import { NextRequest } from "next/server";
 import { jsonError, setSessionCookie } from "@/lib/auth";
-import { hashPin, hashToken } from "@/lib/hash";
+import { hashPin } from "@/lib/hash";
+import { randomBytes } from "crypto";
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit";
 import { updateStore } from "@/lib/store";
 import { verifyWathanPayAuth } from "@/lib/wathanpay";
-import type { MiniAppUser } from "@/types/wathanpay";
 
 export async function POST(req: NextRequest) {
   try {
@@ -14,75 +14,40 @@ export async function POST(req: NextRequest) {
 
     const body = (await req.json().catch(() => ({}))) as {
       authData?: string;
-      accessToken?: string;
-      user?: MiniAppUser;
     };
 
     const authDataStr = String(body.authData ?? "").trim();
-    const token = String(body.accessToken ?? "").trim();
-    const clientUser = body.user;
 
-    let verifiedUser: {
-      id: string;
-      name: string;
-      phone?: string;
-      maskedPhone?: string;
-      avatarUrl?: string | null;
-    } | null = null;
-
-    if (authDataStr) {
-      const authVerification = verifyWathanPayAuth(authDataStr);
-      if (!authVerification.ok || !authVerification.user) {
-        return Response.json(
-          { error: authVerification.error || "Cryptographic authData verification failed." },
-          { status: 401 }
-        );
-      }
-      verifiedUser = authVerification.user;
-    }
-
-    const secretConfigured = Boolean(
-      process.env.WATHANPAY_MERCHANT_SECRET ||
-      process.env.WATHANPAY_SECRET_KEY ||
-      process.env.WATHANPAY_API_KEY
-    );
-    const isProd = process.env.NODE_ENV === "production";
-
-    // In production with merchant secret configured, require cryptographic authData
-    if (!verifiedUser && isProd && secretConfigured) {
+    // Cryptographically verified authData is the only accepted credential.
+    // Client-supplied user profiles and access tokens are never trusted.
+    const authVerification = verifyWathanPayAuth(authDataStr);
+    if (!authVerification.ok || !authVerification.user) {
       return Response.json(
-        { error: "Cryptographic authData is required to authenticate WathanPay session." },
+        { error: authVerification.error || "Cryptographic authData verification failed." },
         { status: 401 }
       );
     }
 
-    const rawId = verifiedUser?.id || clientUser?.id;
-    let sub = "";
-    if (rawId && String(rawId).trim().length > 0) {
-      const sanitizedId = String(rawId).trim().replace(/[^a-zA-Z0-9_-]/g, "");
-      sub = `wp_${sanitizedId}`;
-    } else if (token && token.length >= 8 && token.length <= 512) {
-      sub = `wp_${hashToken(token)}`;
-    }
-
-    if (!sub) {
+    const verifiedUser = authVerification.user;
+    const sanitizedId = String(verifiedUser.id).trim().replace(/[^a-zA-Z0-9_-]/g, "");
+    if (!sanitizedId) {
       return Response.json(
-        { error: "Invalid or missing WathanPay user profile / token." },
+        { error: "Invalid WathanPay user profile." },
         { status: 401 }
       );
     }
+    const sub = `wp_${sanitizedId}`;
 
-    const userName =
-      (verifiedUser?.name && String(verifiedUser.name).trim()) ||
-      (clientUser?.name && String(clientUser.name).trim()) ||
-      "WathanPay User";
+    // New accounts get an unguessable random PIN hash: nobody can log in via
+    // /api/auth/login with a guessed password. Wallet login is the only path.
+    const activationSecret = hashPin(randomBytes(24).toString("base64url"));
+
     const userPhone =
-      (verifiedUser?.maskedPhone && String(verifiedUser.maskedPhone).trim()) ||
-      (verifiedUser?.phone && String(verifiedUser.phone).trim()) ||
-      (clientUser?.maskedPhone && String(clientUser.maskedPhone).trim()) ||
-      (clientUser?.phone && String(clientUser.phone).trim()) ||
+      (verifiedUser.maskedPhone && String(verifiedUser.maskedPhone).trim()) ||
+      (verifiedUser.phone && String(verifiedUser.phone).trim()) ||
       "";
-    const userAvatar = verifiedUser?.avatarUrl || clientUser?.avatarUrl || null;
+    const userName =
+      (verifiedUser.name && String(verifiedUser.name).trim()) || "WathanPay User";
 
     const user = await updateStore((store) => {
       let found = store.users.find((u) => u.wathanpaySub === sub || u.id === sub);
@@ -93,14 +58,13 @@ export async function POST(req: NextRequest) {
           phone: userPhone,
           email: "",
           role: "user",
-          pinHash: hashPin(token ? token.slice(-6).padStart(6, "0") : "123456"),
-          balanceKs: isProd ? 0 : 250000,
+          pinHash: activationSecret,
+          balanceKs: 0,
           wathanpaySub: sub,
-          avatarUrl: userAvatar,
+          avatarUrl: verifiedUser.avatarUrl ?? null,
         };
         store.users.push(found);
       } else {
-        // Update user profile info if newly shared or updated
         if (
           userName &&
           userName !== "WathanPay User" &&
@@ -108,17 +72,22 @@ export async function POST(req: NextRequest) {
         ) {
           found.name = userName;
         }
-        if (userPhone && (!found.phone || found.phone !== userPhone)) {
+        if (userPhone && found.phone !== userPhone) {
           found.phone = userPhone;
         }
-        if (userAvatar && !found.avatarUrl) {
-          found.avatarUrl = userAvatar;
+        if (verifiedUser.avatarUrl && !found.avatarUrl) {
+          found.avatarUrl = verifiedUser.avatarUrl;
         }
       }
       return found;
     });
 
-    await setSessionCookie({ sub: user.id, role: user.role, name: user.name });
+    await setSessionCookie({
+      sub: user.id,
+      role: user.role,
+      name: user.name,
+      ver: user.tokenVersion ?? 0,
+    });
 
     return Response.json({
       user: {

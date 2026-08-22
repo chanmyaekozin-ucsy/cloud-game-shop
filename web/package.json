@@ -12,22 +12,24 @@
     "bot": "node dist/bot.js"
   },
   "dependencies": {
+    "better-sqlite3": "^13.0.3",
     "grammy": "^1.45.1",
     "jose": "^6.2.8",
-    "next": "^15.5.9",
+    "next": "^16.3.2",
     "qrcode": "^1.5.4",
     "react": "19.1.0",
     "react-dom": "19.1.0"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
+    "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^20",
     "@types/qrcode": "^1.5.6",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "esbuild": "^0.28.2",
     "eslint": "^9",
-    "eslint-config-next": "^15.5.9",
+    "eslint-config-next": "^16.3.2",
     "tsx": "^4.23.12",
     "typescript": "^5"
   }

@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { jsonError, requireAdmin } from "@/lib/auth";
-import { updateStore } from "@/lib/store";
+import { audit, updateStore } from "@/lib/store";
 import type { GameTag } from "@/lib/types";
 
 export async function PATCH(
@@ -8,7 +8,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    await requireAdmin();
+    const session = await requireAdmin();
     const { id } = await params;
     const body = (await req.json()) as Partial<{
       name: string;
@@ -31,6 +31,7 @@ export async function PATCH(
       if (typeof body.zoneLabel === "string") found.zoneLabel = body.zoneLabel;
       return found;
     });
+    audit(session.sub, "game.update", { gameId: id, changes: body });
     return Response.json({ game });
   } catch (err) {
     return jsonError(err);

@@ -3,33 +3,46 @@ import { cookies } from "next/headers";
 import type { Role, Session } from "./types";
 
 const COOKIE = "cgs_session";
+const SESSION_TTL_SECONDS = 60 * 60 * 8;
 
-let warnedSecret = false;
+let cachedKey: Uint8Array | null = null;
+let cachedRaw = "";
 
-function secret() {
-  const raw = process.env.AUTH_SECRET;
-  if (!raw) {
-    if (process.env.NODE_ENV === "production" && !warnedSecret) {
-      console.warn(
-        "[SECURITY WARNING] AUTH_SECRET is not set! Using default secret in production is insecure. Set AUTH_SECRET in your environment.",
-      );
-      warnedSecret = true;
-    }
-    return new TextEncoder().encode("cloud-game-shop-dev-secret");
+function secret(): Uint8Array {
+  const raw = process.env.AUTH_SECRET || "";
+  if (raw !== cachedRaw) {
+    cachedRaw = raw;
+    cachedKey = new TextEncoder().encode(raw);
   }
-  return new TextEncoder().encode(raw);
+  return cachedKey!;
 }
 
-export async function signSession(session: Session) {
-  return new SignJWT({ role: session.role, name: session.name })
+export function assertAuthSecretConfigured() {
+  if (!process.env.AUTH_SECRET) {
+    throw new Error(
+      "[CONFIG] AUTH_SECRET is not set. Refusing to run: sessions cannot be signed securely. Generate one with `openssl rand -base64 48`.",
+    );
+  }
+}
+
+function isProduction(): boolean {
+  return process.env.NODE_ENV === "production";
+}
+
+export async function signSession(session: Session & { ver?: number }) {
+  assertAuthSecretConfigured();
+  return new SignJWT({ role: session.role, name: session.name, ver: session.ver })
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(session.sub)
     .setIssuedAt()
-    .setExpirationTime("14d")
+    .setExpirationTime(`${SESSION_TTL_SECONDS}s`)
     .sign(secret());
 }
 
-export async function readSession(): Promise<Session | null> {
+export async function readSession(tokenVersion?: number): Promise<Session | null> {
+  if (isProduction()) {
+    assertAuthSecretConfigured();
+  }
   const token = (await cookies()).get(COOKIE)?.value;
   if (!token) return null;
   try {
@@ -38,19 +51,27 @@ export async function readSession(): Promise<Session | null> {
     const role = payload.role === "admin" ? "admin" : "user";
     const name = String(payload.name ?? "");
     if (!sub) return null;
+    // Reject tokens issued before the user's current tokenVersion (revocation).
+    if (
+      typeof tokenVersion === "number" &&
+      typeof payload.ver === "number" &&
+      payload.ver < tokenVersion
+    ) {
+      return null;
+    }
     return { sub, role: role as Role, name };
   } catch {
     return null;
   }
 }
 
-export async function setSessionCookie(session: Session) {
+export async function setSessionCookie(session: Session & { ver?: number }) {
   const token = await signSession(session);
   (await cookies()).set(COOKIE, token, {
     httpOnly: true,
     sameSite: "lax",
     path: "/",
-    maxAge: 60 * 60 * 24 * 14,
+    maxAge: SESSION_TTL_SECONDS,
     secure: process.env.NODE_ENV === "production",
   });
 }

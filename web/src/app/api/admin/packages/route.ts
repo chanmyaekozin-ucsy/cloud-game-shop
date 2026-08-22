@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { jsonError, requireAdmin } from "@/lib/auth";
-import { readStore, updateStore } from "@/lib/store";
+import { audit, readStore, updateStore } from "@/lib/store";
 
 export async function GET(req: NextRequest) {
   try {
@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    await requireAdmin();
+    const session = await requireAdmin();
     const body = (await req.json()) as {
       gameId?: string;
       name?: string;
@@ -47,6 +47,11 @@ export async function POST(req: NextRequest) {
         sortOrder: store.packages.filter((p) => p.gameId === game.id).length,
       };
       store.packages.push(created);
+      audit(session.sub, "package.create", {
+        packageId: created.id,
+        gameId: game.id,
+        priceKs: created.priceKs,
+      });
       return created;
     });
     return Response.json({ package: pkg });

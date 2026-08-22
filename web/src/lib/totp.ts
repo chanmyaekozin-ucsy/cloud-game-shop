@@ -1,4 +1,4 @@
-import { createHmac, randomBytes } from "crypto";
+import { createHmac, randomBytes, timingSafeEqual } from "crypto";
 
 const BASE32_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 
@@ -74,8 +74,39 @@ export function generateTotp(secretBase32: string, timestampMs = Date.now(), per
   return code.toString().padStart(6, "0");
 }
 
+function counterFor(timestampMs: number, periodSec: number): number {
+  return Math.floor(timestampMs / 1000 / periodSec);
+}
+
 /**
- * Verify a 6-digit TOTP code with time-skew tolerance (window = 1 means -30s, 0s, +30s).
+ * Verify a 6-digit TOTP code with time-skew tolerance.
+ * Returns the matched counter so callers can enforce single use (replay
+ * protection). Comparison is constant-time.
+ */
+export function verifyTotpCounter(
+  token: string,
+  secretBase32: string,
+  window = 1,
+  periodSec = 30
+): number | null {
+  const cleanToken = String(token ?? "").trim().replace(/\s/g, "");
+  if (!/^\d{6}$/.test(cleanToken)) return null;
+
+  const now = Date.now();
+  const expectedBuf = Buffer.from(cleanToken, "utf8");
+  for (let i = -window; i <= window; i++) {
+    const time = now + i * periodSec * 1000;
+    const generated = Buffer.from(generateTotp(secretBase32, time, periodSec), "utf8");
+    if (expectedBuf.length === generated.length && timingSafeEqual(generated, expectedBuf)) {
+      return counterFor(time, periodSec);
+    }
+  }
+  return null;
+}
+
+/**
+ * Convenience wrapper: true if the code matches any counter in the window.
+ * Prefer verifyTotpCounter + lastUsedTotpCounter for replay protection.
  */
 export function verifyTotp(
   token: string,
@@ -83,18 +114,7 @@ export function verifyTotp(
   window = 1,
   periodSec = 30
 ): boolean {
-  const cleanToken = String(token ?? "").trim().replace(/\s/g, "");
-  if (!/^\d{6}$/.test(cleanToken)) return false;
-
-  const now = Date.now();
-  for (let i = -window; i <= window; i++) {
-    const time = now + i * periodSec * 1000;
-    const generated = generateTotp(secretBase32, time, periodSec);
-    if (generated === cleanToken) {
-      return true;
-    }
-  }
-  return false;
+  return verifyTotpCounter(token, secretBase32, window, periodSec) !== null;
 }
 
 export function getOtpAuthUrl(

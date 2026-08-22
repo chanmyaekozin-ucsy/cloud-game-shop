@@ -32,6 +32,9 @@ export interface WathanPayAuthResult {
  * 5. Compute HMAC-SHA256 using Merchant Secret Key.
  * 6. Perform timing-safe constant-time equality check.
  * 7. Validate `auth_date` against `maxAgeSeconds` (default: 86400s / 24 hours).
+ *
+ * There is NO unsigned fallback: without a configured merchant secret this
+ * always fails. Identity is never trusted from client-supplied fields.
  */
 export function verifyWathanPayAuth(
   authDataString: string,
@@ -43,27 +46,10 @@ export function verifyWathanPayAuth(
     process.env.WATHANPAY_API_KEY;
 
   if (!secret) {
-    if (process.env.NODE_ENV === "production") {
-      return {
-        ok: false,
-        error: "WATHANPAY_MERCHANT_SECRET is not configured on production server",
-      };
-    }
-    // Non-production fallback for development/demo testing without secret
-    try {
-      const params = new URLSearchParams(authDataString);
-      const id = params.get("id") || params.get("user_id") || "";
-      if (!id) return { ok: false, error: "Missing user ID in authData" };
-      const name = params.get("name") || "WathanPay User";
-      const phone = params.get("phone") || params.get("maskedPhone") || undefined;
-      const avatarUrl = params.get("avatarUrl") || null;
-      return {
-        ok: true,
-        user: { id, name, phone, maskedPhone: phone, avatarUrl },
-      };
-    } catch {
-      return { ok: false, error: "Failed to parse authData" };
-    }
+    return {
+      ok: false,
+      error: "WATHANPAY_MERCHANT_SECRET is not configured; WathanPay login is disabled.",
+    };
   }
 
   if (!authDataString || typeof authDataString !== "string") {
@@ -104,7 +90,10 @@ export function verifyWathanPayAuth(
     // 4. Replay attack protection (timestamp check)
     const authDate = parseInt(params.get("auth_date") || "0", 10);
     const now = Math.floor(Date.now() / 1000);
-    if (authDate > 0 && Math.abs(now - authDate) > maxAgeSeconds) {
+    if (!(authDate > 0)) {
+      return { ok: false, error: "Missing or invalid auth_date" };
+    }
+    if (Math.abs(now - authDate) > maxAgeSeconds) {
       return { ok: false, error: "Auth data expired" };
     }
 
@@ -160,6 +149,9 @@ export type VerifyPaymentResult = {
  * GET https://api.wathanpay.com/v1/merchant/verify-payment?shopOrderId={shopOrderId}&transactionId={transactionId}
  * Headers:
  * X-API-Key: {YOUR_MERCHANT_SECRET_KEY}
+ *
+ * Without an API key this returns a hard failure in every environment -
+ * payments are never auto-marked as succeeded by local code.
  */
 export async function verifyWathanPayPayment(
   shopOrderIdOrParams: string | VerifyPaymentParams,
@@ -180,25 +172,12 @@ export async function verifyWathanPayPayment(
     process.env.WATHANPAY_API_KEY;
   const baseUrl = (process.env.WATHANPAY_API_URL || "https://api.wathanpay.com").replace(/\/$/, "");
 
-  // If no merchant API key is configured (e.g. local development or demo environment)
   if (!apiKey) {
-    if (process.env.NODE_ENV === "production") {
-      return {
-        ok: false,
-        verified: false,
-        status: "failed",
-        error: "WATHANPAY_MERCHANT_SECRET / WATHANPAY_API_KEY is not configured on production server.",
-      };
-    }
     return {
-      ok: true,
-      verified: true,
-      status: "succeeded",
-      shopOrderId,
-      amountKs: expectedAmountKs,
-      transactionId: transactionId || `WP_DEMO_${Date.now().toString(36)}`,
-      paidAt: new Date().toISOString(),
-      createdAt: new Date().toISOString(),
+      ok: false,
+      verified: false,
+      status: "not_configured",
+      error: "WathanPay verification is not configured (WATHANPAY_MERCHANT_SECRET missing). Payment cannot be verified.",
     };
   }
 

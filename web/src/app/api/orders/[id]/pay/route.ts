@@ -55,11 +55,13 @@ export async function POST(
       return found;
     });
 
-    const host = req.headers.get("host");
-    const protocol = req.headers.get("x-forwarded-proto") || "https";
-    const callbackUrl = host && !host.includes("localhost") && !host.includes("127.0.0.1")
-      ? `${protocol}://${host}/api/webhooks/gateway`
-      : undefined;
+    // Callback URL must come from trusted configuration, never from the
+    // client-controlled Host header.
+    let callbackUrl: string | undefined;
+    const base = (process.env.APP_BASE_URL || "").trim().replace(/\/$/, "");
+    if (base) {
+      callbackUrl = `${base}/api/webhooks/gateway`;
+    }
 
     const deposit = await createDeposit({
       accountId: method.id,

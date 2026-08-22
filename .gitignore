@@ -1,5 +1,10 @@
 .env
+.env.local
 .data/
+data/*.sqlite3
+data/*.sqlite3-*
+data/*.json.migrated.*
+data/*.json.corrupted.*
 __pycache__/
 *.pyc
 .venv/

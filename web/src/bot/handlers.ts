@@ -1,5 +1,6 @@
 import type { Context } from "grammy";
 import { formatKs, salePriceKs } from "@/lib/format";
+import { randomId } from "@/lib/hash";
 import { readStore, updateStore } from "@/lib/store";
 import { getGameById } from "@/games/shared/catalog";
 import { createDeposit, failedStatus, listPaymentMethods, paidStatus, verifyDepositLast5 } from "@/lib/dominate";
@@ -371,7 +372,7 @@ export async function handleCreateOrderAndDeposit(ctx: Context, methodId: string
     return;
   }
 
-  const orderId = `tg_${Date.now().toString(36)}`;
+  const orderId = randomId("tg", 12);
   let depositId: string | null = null;
   let accountName = "Cloud Game Shop";
   let accountNumber = "09970000000";
@@ -477,19 +478,21 @@ export async function handleLast5Input(ctx: Context, last5Raw: string) {
 
   await ctx.reply(t("checking_payment", session.language));
 
-  let txid = `TX${last5}${Date.now().toString().slice(-4)}`;
+  let txid = "";
   let isSuccess = false;
   let failReason = "";
-
-  const isDev = process.env.NODE_ENV !== "production";
 
   if (session.depositId) {
     try {
       const deposit = await verifyDepositLast5(session.depositId, last5);
       const st = String(deposit.status || "");
-      txid = String(deposit.matched_order_id || deposit.bank_trx_id || deposit.trx_id || txid);
+      txid = String(deposit.matched_order_id || deposit.bank_trx_id || deposit.trx_id || "");
       if (paidStatus(st)) {
         isSuccess = true;
+        if (!txid) {
+          isSuccess = false;
+          failReason = "Gateway did not return a transaction reference. Payment will be reviewed.";
+        }
       } else if (failedStatus(st)) {
         isSuccess = false;
         failReason = deposit.verify_reason || "Payment declined or expired.";
@@ -510,21 +513,14 @@ export async function handleLast5Input(ctx: Context, last5Raw: string) {
       failReason = err instanceof Error ? err.message : "Gateway verification failed.";
     }
   } else {
-    // Direct payment mode without gateway
-    if (isDev && last5 === "00000") {
-      isSuccess = false;
-      failReason = "Payment was declined.";
-    } else if (isDev) {
-      isSuccess = true;
-    } else {
-      // In production, unverified direct payment requires manual admin review
-      isSuccess = false;
-      failReason = "Direct payment submitted - awaiting manual verification";
-    }
+    // No gateway deposit: there is no way to verify this payment. Never
+    // trust a manually typed TxID - route it through admin review.
+    isSuccess = false;
+    failReason = "Direct payment submitted - awaiting manual verification";
   }
 
   let finalOrder: Order | null = null;
-  const isDirectProdSubmission = !session.depositId && !isDev;
+  const isDirectProdSubmission = !session.depositId;
   const topupResult = {
     attempted: false,
     ok: false,
@@ -533,7 +529,9 @@ export async function handleLast5Input(ctx: Context, last5Raw: string) {
 
   if (isSuccess) {
     const store = await readStore();
-    const orderBefore = store.orders.find((o) => o.id === orderId);
+    const orderBefore = store.orders.find(
+      (o) => o.id === orderId && o.userId === `tg_${session.telegramId}`,
+    );
     if (orderBefore && orderBefore.gameId === "mlbb") {
       const pkg = store.packages.find((p) => p.id === orderBefore.packageId);
       if (pkg?.smileGoodsId) {
@@ -550,12 +548,12 @@ export async function handleLast5Input(ctx: Context, last5Raw: string) {
   }
 
   await updateStore(async (s) => {
-    const order = s.orders.find((o) => o.id === orderId);
+    const order = s.orders.find((o) => o.id === orderId && o.userId === `tg_${session.telegramId}`);
     if (!order) return;
 
     if (isDirectProdSubmission) {
       const txn: Transaction = {
-        id: `txn_${Date.now().toString(36)}`,
+        id: `txn_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
         orderId: order.id,
         userId: order.userId,
         amountKs: order.amountKs,
@@ -567,7 +565,7 @@ export async function handleLast5Input(ctx: Context, last5Raw: string) {
       };
       s.transactions.push(txn);
       order.status = "processing";
-      order.txid = txid;
+      order.txid = txid || null;
       order.failReason = "Direct payment - awaiting admin verification";
       order.completedAt = null;
       finalOrder = order;
@@ -575,7 +573,7 @@ export async function handleLast5Input(ctx: Context, last5Raw: string) {
     }
 
     const txn: Transaction = {
-      id: `txn_${Date.now().toString(36)}`,
+      id: `txn_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
       orderId: order.id,
       userId: order.userId,
       amountKs: order.amountKs,

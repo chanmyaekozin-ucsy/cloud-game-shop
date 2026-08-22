@@ -33,8 +33,12 @@ export function loadShopEnv() {
     ...parseEnvFile(localEnvCustom),
   };
 
+  // Fill-in-only semantics (standard dotenv): explicitly exported environment
+  // variables always win over .env files, never the other way around.
   for (const [key, value] of Object.entries(combined)) {
-    process.env[key] = value;
+    if (process.env[key] === undefined) {
+      process.env[key] = value;
+    }
   }
 }
 

@@ -1,9 +1,12 @@
 FROM node:22-alpine AS deps
 WORKDIR /app
+# better-sqlite3 compiles a native addon; python3/make/g++ are needed on alpine
+RUN apk add --no-cache python3 make g++
 COPY package.json package-lock.json ./
 RUN npm ci
 
 FROM node:22-alpine AS builder
+RUN apk add --no-cache python3 make g++
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .

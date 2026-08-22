@@ -2,6 +2,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import path from "path";
 import { loadShopEnv } from "./shop-env";
 
+const SESSION_FILE_MODE = 0o600;
+
 const USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
@@ -288,7 +290,7 @@ export async function updateSmileSession(input: {
   existingData.saved_at = new Date().toISOString();
 
   mkdirSync(path.dirname(targetPath), { recursive: true });
-  writeFileSync(targetPath, JSON.stringify(existingData, null, 2) + "\n", "utf8");
+  writeFileSync(targetPath, JSON.stringify(existingData, null, 2) + "\n", { encoding: "utf8", mode: SESSION_FILE_MODE });
 
   const supplier = await getSmileSupplierStatus();
   const isOk = Boolean(supplier.session.valid && supplier.balance);

@@ -36,7 +36,15 @@ export async function verify(input: {
     data = null;
   }
 
-  if (data?.status === "success" && data.result && typeof data.result === "object") {
+  // Upstream unreachable: fail loudly instead of inventing a demo identity.
+  if (!data) {
+    throw httpError(
+      "Account verification is temporarily unavailable. Please try again shortly.",
+      503,
+    );
+  }
+
+  if (data.status === "success" && data.result && typeof data.result === "object") {
     const result = data.result as { nickname?: string; country?: string };
     const nickname = String(result.nickname ?? "").trim();
     const country = String(result.country ?? "").trim();
@@ -47,16 +55,6 @@ export async function verify(input: {
       nickname: nickname || "Unknown",
       country,
       region: REGION_MAP[country] || country || "Unknown",
-    };
-  }
-
-  if (!data && process.env.MLBB_DEMO_VERIFY !== "0") {
-    return {
-      gameUserId: id,
-      zoneId: zone,
-      nickname: "Demo Player",
-      country: "Myanmar",
-      region: "Myanmar",
     };
   }
 
